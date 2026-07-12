@@ -1,0 +1,5 @@
+key.categories.backpackenhance=Backpack Enhance
+key.backpackenhance.toggle=Minimize/Expand Backpack Overlay
+gui.backpackenhance.title=Backpacks
+gui.backpackenhance.tooltip.player_slot=Slot
+gui.backpackenhance.tooltip.slots=slots

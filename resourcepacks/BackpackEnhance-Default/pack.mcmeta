@@ -1,0 +1,6 @@
+{
+  "pack": {
+    "pack_format": 1,
+    "description": "BackpackEnhance default overlay textures (vanilla grey). Copy or edit assets/backpackenhance/textures/gui/overlay.png to retheme the backpack overlay."
+  }
+}

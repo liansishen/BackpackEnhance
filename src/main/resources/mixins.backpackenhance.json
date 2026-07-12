@@ -1,0 +1,25 @@
+{
+  "required": false,
+  "minVersion": "0.7.11",
+  "package": "com.hepdd.backpackenhance.mixin",
+  "refmap": "mixins.backpackenhance.refmap.json",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [
+    "MNetHandlerPlayServer",
+    "MContainer",
+    "MContainerChest",
+    "MModularContainer"
+  ],
+  "client": [
+    "MPlayerControllerMP",
+    "MGuiContainer",
+    "MModularGui",
+    "MModularUI2Draw",
+    "MNeiDefaultOverlayHandler",
+    "MNeiIOverlayHandler",
+    "MNeiRecipeHandlerRef",
+    "MNeiAutoCraftingManager",
+    "MNeiGuiOverlayButton"
+  ],
+  "server": []
+}
