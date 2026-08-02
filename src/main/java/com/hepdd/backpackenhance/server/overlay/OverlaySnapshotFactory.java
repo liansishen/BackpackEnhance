@@ -11,6 +11,7 @@ import com.darkona.adventurebackpack.inventory.InventoryBackpack;
 import com.hepdd.backpackenhance.integration.BackpackInventoryAccess;
 import com.hepdd.backpackenhance.integration.BackpackKind;
 import com.hepdd.backpackenhance.integration.BackpackTab;
+import com.hepdd.backpackenhance.integration.ForestryModeBridge;
 
 import de.eydamos.backpack.item.ItemBackpackBase;
 import de.eydamos.backpack.saves.BackpackSave;
@@ -34,7 +35,7 @@ public class OverlaySnapshotFactory {
             return null;
         }
 
-        IInventory inventory = createInventory(player, tab.kind, liveStack);
+        IInventory inventory = createInventory(player, tab.kind, liveStack, tab.playerSlot);
         if (inventory == null) {
             return null;
         }
@@ -47,6 +48,9 @@ public class OverlaySnapshotFactory {
             slots.add(new OverlaySlotSnapshot(i, stack == null ? null : stack.copy()));
         }
 
+        ForestryModeBridge.ModeState mode = tab.kind == BackpackKind.FORESTRY
+            ? ForestryModeBridge.state(liveStack)
+            : ForestryModeBridge.ModeState.NONE;
         return new OverlayTabSnapshot(
             tab.tabId,
             tab.playerSlot,
@@ -55,10 +59,14 @@ public class OverlaySnapshotFactory {
             columns,
             storageSlots,
             liveStack.copy(),
-            slots);
+            slots,
+            mode.modeId,
+            mode.nextModeId,
+            mode.available,
+            mode.resupplyEnabled);
     }
 
-    public IInventory createInventory(EntityPlayerMP player, BackpackKind kind, ItemStack stack) {
+    public IInventory createInventory(EntityPlayerMP player, BackpackKind kind, ItemStack stack, int playerSlot) {
         switch (kind) {
             case ADVENTURE:
                 return new InventoryBackpack(stack);
@@ -66,6 +74,8 @@ public class OverlaySnapshotFactory {
             case BRADS_WORKBENCH:
             case BRADS_ENDER:
                 return createBradsInventory(player, stack);
+            case FORESTRY:
+                return createForestryInventory(player, stack, playerSlot);
             default:
                 return null;
         }
@@ -89,6 +99,23 @@ public class OverlaySnapshotFactory {
             ((de.eydamos.backpack.inventory.InventoryBackpack) inventory).readFromNBT(save);
         }
         return inventory;
+    }
+
+    private IInventory createForestryInventory(EntityPlayerMP player, ItemStack stack, int playerSlot) {
+        try {
+            Class<?> adapterClass =
+                Class.forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
+            return (IInventory) adapterClass.getMethod(
+                "createInventory",
+                net.minecraft.entity.player.EntityPlayer.class,
+                ItemStack.class,
+                Integer.TYPE)
+                .invoke(null, player, stack, Integer.valueOf(playerSlot));
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        } catch (LinkageError ignored) {
+            return null;
+        }
     }
 
 }

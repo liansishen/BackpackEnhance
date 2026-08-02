@@ -16,10 +16,12 @@ public class BackpackScanner {
     private static final String ADVENTURE_ITEM = "com.darkona.adventurebackpack.item.ItemAdventureBackpack";
     private static final String BRADS_BASE_ITEM = "de.eydamos.backpack.item.ItemBackpackBase";
     private static final String BRADS_WORKBENCH_ITEM = "de.eydamos.backpack.item.ItemWorkbenchBackpack";
+    private static final String FORESTRY_ITEM = "forestry.storage.items.ItemBackpack";
 
     private final Class<?> adventureBackpackItemClass = findClass(ADVENTURE_ITEM);
     private final Class<?> bradsBackpackBaseClass = findClass(BRADS_BASE_ITEM);
     private final Class<?> bradsWorkbenchBackpackClass = findClass(BRADS_WORKBENCH_ITEM);
+    private final Class<?> forestryBackpackItemClass = findClass(FORESTRY_ITEM);
 
     public List<BackpackTab> scan(EntityPlayer player) {
         List<BackpackTab> result = new ArrayList<BackpackTab>();
@@ -64,6 +66,10 @@ public class BackpackScanner {
             return BackpackKind.BRADS;
         }
 
+        if (isInstance(forestryBackpackItemClass, item)) {
+            return BackpackKind.FORESTRY;
+        }
+
         return null;
     }
 
@@ -82,11 +88,14 @@ public class BackpackScanner {
             return Class.forName(name);
         } catch (ClassNotFoundException ignored) {
             return null;
+        } catch (LinkageError ignored) {
+            return null;
         }
     }
 
     public boolean hasSupportedModLoaded() {
         return Loader.isModLoaded("adventurebackpack") || Loader.isModLoaded("Backpack")
-            || Loader.isModLoaded("backpack");
+            || Loader.isModLoaded("backpack")
+            || Loader.isModLoaded("Forestry");
     }
 }

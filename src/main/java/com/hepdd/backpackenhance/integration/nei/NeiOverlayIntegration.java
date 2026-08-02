@@ -12,7 +12,10 @@ import org.lwjgl.input.Keyboard;
 import com.hepdd.backpackenhance.client.overlay.BackpackOverlayPanel;
 import com.hepdd.backpackenhance.client.overlay.OverlayController;
 
+import codechicken.nei.LayoutManager;
+import codechicken.nei.TextField;
 import codechicken.nei.VisiblityData;
+import codechicken.nei.Widget;
 import codechicken.nei.api.API;
 import codechicken.nei.api.INEIGuiHandler;
 import codechicken.nei.api.TaggedInventoryArea;
@@ -37,6 +40,19 @@ public final class NeiOverlayIntegration implements INEIGuiHandler {
             GuiContainerManager.addObjectHandler(new OverlayObjectHandler());
             registered = true;
         }
+    }
+
+    public static boolean isTextInputFocused() {
+        try {
+            return isTextFieldFocused(LayoutManager.searchField) || isTextFieldFocused(LayoutManager.quantity)
+                || isTextFieldFocused(LayoutManager.getInputFocused());
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isTextFieldFocused(Widget widget) {
+        return widget instanceof TextField && ((TextField) widget).focused();
     }
 
     @Override

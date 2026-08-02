@@ -16,6 +16,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraftforge.client.event.GuiOpenEvent;
 import net.minecraftforge.client.event.GuiScreenEvent;
+import net.minecraftforge.client.event.MouseEvent;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
@@ -28,12 +29,15 @@ import com.hepdd.backpackenhance.integration.BackpackKind;
 import com.hepdd.backpackenhance.integration.BackpackScanner;
 import com.hepdd.backpackenhance.integration.BackpackTab;
 import com.hepdd.backpackenhance.integration.BackpackTabColors;
+import com.hepdd.backpackenhance.integration.ForestryModeBridge;
+import com.hepdd.backpackenhance.integration.nei.NeiOverlayIntegration;
 import com.hepdd.backpackenhance.integration.nei.OverlayNeiSupport;
 import com.hepdd.backpackenhance.net.NetworkHandler;
 import com.hepdd.backpackenhance.net.packet.PacketCloseOverlay;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayActiveTab;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayClick;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayDrag;
+import com.hepdd.backpackenhance.net.packet.PacketOverlayForestryModeCycle;
 import com.hepdd.backpackenhance.net.packet.PacketOverlaySettings;
 import com.hepdd.backpackenhance.net.packet.PacketRequestOverlay;
 
@@ -75,6 +79,8 @@ public class OverlayController {
     private int pendingClickMode;
     private final List<Integer> dragSlots = new ArrayList<Integer>();
     private boolean renderedInContainerPass;
+    /** Native wheel timestamp de-duplicates a consumed event if both registered buses deliver it. */
+    private long lastHandledWheelEventNanos = Long.MIN_VALUE;
     /** Monotonic session id so a late PacketCloseOverlay cannot wipe a newer Request. */
     private int sessionId;
     /** Fingerprint of backpack items in the player inventory (layout / dye / identity). */
@@ -99,6 +105,18 @@ public class OverlayController {
             if (activeGui != null && activeGui != event.gui && !tabs.isEmpty()) {
                 panel.savePosition(activeGui);
             }
+            panel.releaseScrollbar();
+            leftMouseDown = false;
+            rightMouseDown = false;
+            dragging = false;
+            minimizedDragCandidate = false;
+            minimizedDragMoved = false;
+            pendingSlotClick = null;
+            pendingRightSlotClick = null;
+            panel.clearDragPreview();
+            dragSlots.clear();
+            rightDragSlots.clear();
+            lastHandledWheelEventNanos = Long.MIN_VALUE;
             activeGui = event.gui;
             panel.applyGui(event.gui);
             pendingScan = true;
@@ -114,8 +132,21 @@ public class OverlayController {
         }
         activeGui = null;
         pendingScan = false;
+        leftMouseDown = false;
+        rightMouseDown = false;
+        dragging = false;
+        panel.releaseScrollbar();
+        panel.clearModeCyclePending();
+        minimizedDragCandidate = false;
+        minimizedDragMoved = false;
+        pendingSlotClick = null;
+        pendingRightSlotClick = null;
+        panel.clearDragPreview();
+        dragSlots.clear();
+        rightDragSlots.clear();
         tabs.clear();
         selectedTabId = -1;
+        lastHandledWheelEventNanos = Long.MIN_VALUE;
     }
 
     @SubscribeEvent
@@ -159,6 +190,7 @@ public class OverlayController {
             tabs.addAll(syncedTabs);
             panel.setTabs(tabs);
             OverlayClientState.applyPendingCursor();
+            panel.clearModeCyclePending();
             rememberSelectedTabId();
         }
 
@@ -225,9 +257,11 @@ public class OverlayController {
         sb.append(slot)
             .append('#')
             .append(Item.getIdFromItem(stack.getItem()))
-            .append('@')
-            .append(stack.getItemDamage())
-            .append('@')
+            .append('@');
+        if (kind != BackpackKind.FORESTRY) {
+            sb.append(stack.getItemDamage());
+        }
+        sb.append('@')
             .append(kind.name())
             .append('@')
             .append(BackpackTabColors.resolve(kind, stack));
@@ -246,6 +280,11 @@ public class OverlayController {
         // Brad's UUID on the stack
         if (tag.hasKey("backpack-UID")) {
             sb.append(tag.getString("backpack-UID"));
+        }
+        // Forestry item-inventory identity
+        if (tag.hasKey("UID", 3)) {
+            sb.append('f')
+                .append(tag.getInteger("UID"));
         }
         // Adventure skin type (root or wearable compound)
         if (tag.hasKey("type")) {
@@ -284,6 +323,79 @@ public class OverlayController {
         renderedInContainerPass = false;
     }
 
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseEvent(MouseEvent event) {
+        if (handleMouseWheelInput(activeGui, event.dwheel, event.nanoseconds)) {
+            event.setCanceled(true);
+        }
+    }
+
+    /**
+     * Handles the current native wheel event while a GUI is open. Minecraft 1.7.10 drains GUI
+     * mouse events in {@code GuiScreen.handleInput} before Forge posts {@link MouseEvent}, so the
+     * GUI mixin calls this method directly; {@link #onMouseEvent} remains as a fallback for screens
+     * that allow normal in-game input.
+     */
+    public static boolean handleMouseWheelInput(GuiScreen gui, int wheelDelta, long eventNanos) {
+        if (instance == null || gui == null || wheelDelta == 0) {
+            return false;
+        }
+        return instance.handleMouseWheel(gui, wheelDelta, eventNanos);
+    }
+
+    private boolean handleMouseWheel(GuiScreen gui, int wheelDelta, long eventNanos) {
+        if (eventNanos == lastHandledWheelEventNanos || gui != activeGui || minecraft.currentScreen != activeGui
+            || tabs.isEmpty()) {
+            return false;
+        }
+        // Inventory drag-place and window/scrollbar drags keep their current target stable.
+        if (minecraft.thePlayer == null || minecraft.thePlayer.inventory == null
+            || Mouse.isButtonDown(0)
+            || Mouse.isButtonDown(1)
+            || leftMouseDown
+            || rightMouseDown
+            || dragging
+            || panel.isScrollbarDragging()) {
+            return false;
+        }
+
+        ScaledResolution scaled = new ScaledResolution(minecraft, minecraft.displayWidth, minecraft.displayHeight);
+        int mouseX = Mouse.getEventX() * scaled.getScaledWidth() / minecraft.displayWidth;
+        int mouseY = scaled.getScaledHeight()
+            - Mouse.getEventY() * scaled.getScaledHeight() / minecraft.displayHeight
+            - 1;
+
+        // The scrollbar always owns the wheel, even while carrying an item.
+        if (panel.isMouseOverScrollbar(activeGui, mouseX, mouseY)) {
+            return consumeWheelEvent(eventNanos, panel.mouseScrolled(activeGui, mouseX, mouseY, wheelDelta));
+        }
+
+        OverlaySlotClick slotClick = panel.getSlotClickAt(mouseX, mouseY);
+        if (slotClick == null) {
+            return false;
+        }
+
+        ItemStack slotStack = panel.getStackAt(mouseX, mouseY);
+        if (slotStack == null) {
+            // Empty storage slots scroll the visible rows when this tab has a scrollbar.
+            return consumeWheelEvent(eventNanos, panel.mouseScrolled(activeGui, mouseX, mouseY, wheelDelta));
+        }
+        if (minecraft.thePlayer.inventory.getItemStack() == null) {
+            // Occupied storage slots use the existing shift-click-out path instead of scrolling.
+            NetworkHandler.INSTANCE.sendToServer(
+                new PacketOverlayClick(slotClick.tabId, slotClick.slotIndex, 0, PacketOverlayClick.MODE_SHIFT));
+            return consumeWheelEvent(eventNanos, true);
+        }
+        return false;
+    }
+
+    private boolean consumeWheelEvent(long eventNanos, boolean consumed) {
+        if (consumed) {
+            lastHandledWheelEventNanos = eventNanos;
+        }
+        return consumed;
+    }
+
     private void handleMouseInput(GuiScreen gui) {
         ScaledResolution scaled = new ScaledResolution(minecraft, minecraft.displayWidth, minecraft.displayHeight);
         int mouseX = Mouse.getX() * scaled.getScaledWidth() / minecraft.displayWidth;
@@ -304,10 +416,28 @@ public class OverlayController {
 
             boolean wasMinimized = Config.overlayMinimized;
             boolean consumed = panel.mousePressed(gui, mouseX, mouseY, 0);
+            if (consumed && panel.isScrollbarDragging()) {
+                leftMouseDown = true;
+                rightMouseDown = rightNowDown;
+                return;
+            }
             int activeTabId = panel.consumePendingActiveTabId();
             if (activeTabId >= 0) {
                 selectedTabId = activeTabId;
                 NetworkHandler.INSTANCE.sendToServer(new PacketOverlayActiveTab(activeTabId));
+            }
+            BackpackOverlayPanel.ModeCycleRequest modeRequest = panel.consumePendingModeCycle();
+            if (modeRequest != null) {
+                boolean hasUid = ForestryModeBridge.hasUid(modeRequest.stack);
+                int uid = hasUid ? ForestryModeBridge.uid(modeRequest.stack) : 0;
+                NetworkHandler.INSTANCE.sendToServer(
+                    new PacketOverlayForestryModeCycle(
+                        sessionId,
+                        modeRequest.tabId,
+                        modeRequest.playerSlot,
+                        modeRequest.expectedMode,
+                        hasUid,
+                        uid));
             }
             // Minimize button consumes the click; do not start title drag (would toggle
             // minimize back on mouse-up via minimizedDragCandidate).
@@ -329,6 +459,8 @@ public class OverlayController {
                 && !dragSlots.contains(slotClick.slotIndex)) {
                 dragSlots.add(slotClick.slotIndex);
             }
+        } else if (nowDown && panel.isScrollbarDragging()) {
+            panel.dragScrollbarTo(mouseY);
         } else if (nowDown && dragging) {
             if (Math.abs(mouseX - dragStartMouseX) > 2 || Math.abs(mouseY - dragStartMouseY) > 2) {
                 minimizedDragMoved = true;
@@ -337,6 +469,8 @@ public class OverlayController {
         } else if (!nowDown && leftMouseDown) {
             if (pendingSlotClick != null) {
                 sendPendingLeftClick();
+            } else if (panel.isScrollbarDragging()) {
+                panel.releaseScrollbar();
             } else if (dragging) {
                 panel.savePosition(gui);
                 if (minimizedDragCandidate && !minimizedDragMoved) {
@@ -349,6 +483,7 @@ public class OverlayController {
             }
             dragging = false;
             minimizedDragCandidate = false;
+            minimizedDragMoved = false;
             pendingSlotClick = null;
             dragSlots.clear();
         }
@@ -402,13 +537,18 @@ public class OverlayController {
         leftMouseDown = false;
         rightMouseDown = false;
         dragging = false;
+        panel.releaseScrollbar();
+        panel.clearModeCyclePending();
         minimizedDragCandidate = false;
+        minimizedDragMoved = false;
         pendingSlotClick = null;
         pendingRightSlotClick = null;
+        panel.clearDragPreview();
         dragSlots.clear();
         rightDragSlots.clear();
         backpackInventoryFingerprint = "";
         selectedTabId = -1;
+        lastHandledWheelEventNanos = Long.MIN_VALUE;
         for (int i = 0; i < hotbarKeyDown.length; i++) {
             hotbarKeyDown[i] = false;
         }
@@ -419,6 +559,13 @@ public class OverlayController {
     }
 
     private void handleHotbarKeys(GuiScreen gui) {
+        if (isTextInputFocused(gui)) {
+            for (int i = 0; i < hotbarKeyDown.length; i++) {
+                hotbarKeyDown[i] = Keyboard.isKeyDown(Keyboard.KEY_1 + i);
+            }
+            return;
+        }
+
         ScaledResolution scaled = new ScaledResolution(minecraft, minecraft.displayWidth, minecraft.displayHeight);
         int mouseX = Mouse.getX() * scaled.getScaledWidth() / minecraft.displayWidth;
         int mouseY = scaled.getScaledHeight() - Mouse.getY() * scaled.getScaledHeight() / minecraft.displayHeight - 1;
@@ -450,6 +597,10 @@ public class OverlayController {
             return;
         }
         boolean down = Keyboard.isKeyDown(keyCode);
+        if (isTextInputFocused(gui)) {
+            toggleKeyWasDown = down;
+            return;
+        }
         if (down && !toggleKeyWasDown) {
             tryToggleMinimized(gui);
         }
@@ -470,7 +621,12 @@ public class OverlayController {
         if (bind == Keyboard.KEY_NONE || bind == 0 || keyCode != bind) {
             return false;
         }
-        return instance.minecraft.currentScreen == instance.activeGui && !instance.tabs.isEmpty();
+        return instance.minecraft.currentScreen == instance.activeGui && !instance.tabs.isEmpty()
+            && !isTextInputFocused(instance.activeGui);
+    }
+
+    public static boolean isTextInputFocused(GuiScreen gui) {
+        return GuiTextInputFocus.hasFocusedTextInput(gui) || NeiOverlayIntegration.isTextInputFocused();
     }
 
     private void tryToggleMinimized(GuiScreen gui) {
@@ -492,7 +648,8 @@ public class OverlayController {
         if (instance == null || instance.activeGui == null || instance.tabs.isEmpty()) {
             return false;
         }
-        return instance.dragging || instance.pendingSlotClick != null
+        return instance.dragging || instance.panel.isScrollbarDragging()
+            || instance.pendingSlotClick != null
             || instance.pendingRightSlotClick != null
             || instance.panel.isMouseOverOverlay(mouseX, mouseY);
     }
@@ -574,12 +731,31 @@ public class OverlayController {
         ItemStack cursor = minecraft.thePlayer == null ? null : minecraft.thePlayer.inventory.getItemStack();
         if (pendingSlotClick != null && cursor != null && dragSlots.size() > 0) {
             // Left drag-place preview only when holding an item (vanilla distribute).
-            panel.setDragPreview(pendingSlotClick.tabId, dragSlots, 0, cursor);
+            BackpackTab tab = findTab(pendingSlotClick.tabId);
+            if (tab != null && isValidForClientPrediction(tab, cursor)) {
+                panel.setDragPreview(pendingSlotClick.tabId, dragSlots, 0, cursor);
+            } else {
+                panel.clearDragPreview();
+            }
         } else if (pendingRightSlotClick != null && cursor != null && rightDragSlots.size() > 0) {
-            panel.setDragPreview(pendingRightSlotClick.tabId, rightDragSlots, 1, cursor);
+            BackpackTab tab = findTab(pendingRightSlotClick.tabId);
+            if (tab != null && isValidForClientPrediction(tab, cursor)) {
+                panel.setDragPreview(pendingRightSlotClick.tabId, rightDragSlots, 1, cursor);
+            } else {
+                panel.clearDragPreview();
+            }
         } else {
             panel.clearDragPreview();
         }
+    }
+
+    private BackpackTab findTab(int tabId) {
+        for (BackpackTab tab : tabs) {
+            if (tab.tabId == tabId) {
+                return tab;
+            }
+        }
+        return null;
     }
 
     private void renderPostFallbackTop(GuiScreen gui, int mouseX, int mouseY) {
@@ -745,9 +921,15 @@ public class OverlayController {
                 tab.setSlotStack(slotIndex, null);
             }
         } else if (slotStack == null) {
+            if (!isValidForClientPrediction(tab, cursor)) {
+                return;
+            }
             tab.setSlotStack(slotIndex, cursor.copy());
             minecraft.thePlayer.inventory.setItemStack(null);
         } else if (sameStackMerge(slotStack, cursor) && slotStack.stackSize < slotStack.getMaxStackSize()) {
+            if (!isValidForClientPrediction(tab, cursor)) {
+                return;
+            }
             int limit = slotStack.getMaxStackSize();
             int move = Math.min(cursor.stackSize, limit - slotStack.stackSize);
             if (move > 0) {
@@ -759,10 +941,17 @@ public class OverlayController {
                 minecraft.thePlayer.inventory.setItemStack(newCursor.stackSize <= 0 ? null : newCursor);
             }
         } else {
+            if (!isValidForClientPrediction(tab, cursor)) {
+                return;
+            }
             tab.setSlotStack(slotIndex, cursor.copy());
             minecraft.thePlayer.inventory.setItemStack(slotStack.copy());
         }
         panel.setTabs(tabs);
+    }
+
+    private static boolean isValidForClientPrediction(BackpackTab tab, ItemStack stack) {
+        return tab.kind != BackpackKind.FORESTRY || ForestryModeBridge.isItemValid(tab.stack, stack);
     }
 
     private static boolean sameStackMerge(ItemStack a, ItemStack b) {
@@ -798,6 +987,9 @@ public class OverlayController {
                 tab.setSlotStack(slotIndex, left.stackSize <= 0 ? null : left);
             }
         } else if (slotStack == null) {
+            if (!isValidForClientPrediction(tab, cursor)) {
+                return;
+            }
             ItemStack placed = cursor.copy();
             placed.stackSize = 1;
             tab.setSlotStack(slotIndex, placed);
@@ -805,6 +997,9 @@ public class OverlayController {
             newCursor.stackSize--;
             minecraft.thePlayer.inventory.setItemStack(newCursor.stackSize <= 0 ? null : newCursor);
         } else if (sameStackMerge(slotStack, cursor) && slotStack.stackSize < slotStack.getMaxStackSize()) {
+            if (!isValidForClientPrediction(tab, cursor)) {
+                return;
+            }
             ItemStack newSlot = slotStack.copy();
             newSlot.stackSize++;
             tab.setSlotStack(slotIndex, newSlot);

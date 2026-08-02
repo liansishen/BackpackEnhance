@@ -39,6 +39,10 @@ public class PacketOverlayState implements IMessage {
             int columns = buf.readInt();
             int storageSlots = buf.readInt();
             ItemStack backpackStack = ByteBufUtils.readItemStack(buf);
+            int modeId = buf.readInt();
+            int nextModeId = buf.readInt();
+            boolean modeCycleAvailable = buf.readBoolean();
+            boolean resupplyEnabled = buf.readBoolean();
             int stackCount = buf.readInt();
             List<OverlaySlotSnapshot> slots = new ArrayList<OverlaySlotSnapshot>(stackCount);
             for (int slot = 0; slot < stackCount; slot++) {
@@ -53,7 +57,11 @@ public class PacketOverlayState implements IMessage {
                     columns,
                     storageSlots,
                     backpackStack,
-                    slots));
+                    slots,
+                    modeId,
+                    nextModeId,
+                    modeCycleAvailable,
+                    resupplyEnabled));
         }
         cursorStack = ByteBufUtils.readItemStack(buf);
     }
@@ -69,6 +77,10 @@ public class PacketOverlayState implements IMessage {
             buf.writeInt(tab.columns);
             buf.writeInt(tab.storageSlots);
             ByteBufUtils.writeItemStack(buf, tab.backpackStack);
+            buf.writeInt(tab.modeId);
+            buf.writeInt(tab.nextModeId);
+            buf.writeBoolean(tab.modeCycleAvailable);
+            buf.writeBoolean(tab.resupplyEnabled);
             buf.writeInt(tab.slots.size());
             for (OverlaySlotSnapshot slot : tab.slots) {
                 buf.writeInt(slot.slot);

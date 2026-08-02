@@ -21,6 +21,11 @@ public final class BackpackInventoryAccess {
                 return Math.min(save.getSize(), inventory.getSizeInventory());
             }
         }
+        if (kind == BackpackKind.FORESTRY) {
+            return Math.min(
+                forestryStorageSlots(backpackStack, inventory.getSizeInventory()),
+                inventory.getSizeInventory());
+        }
         return inventory.getSizeInventory();
     }
 
@@ -33,6 +38,9 @@ public final class BackpackInventoryAccess {
             if (!save.isUninitialized()) {
                 return save.getSize();
             }
+        }
+        if (kind == BackpackKind.FORESTRY) {
+            return forestryStorageSlots(backpackStack, kind.storageSlots);
         }
         return kind.storageSlots;
     }
@@ -47,6 +55,9 @@ public final class BackpackInventoryAccess {
                 return Math.max(1, save.getSlotsPerRow());
             }
         }
+        if (kind == BackpackKind.FORESTRY) {
+            return storageSlots <= 15 ? 5 : storageSlots <= 45 ? 9 : 5;
+        }
         return storageSlots >= 9 ? 9 : Math.max(1, storageSlots);
     }
 
@@ -58,6 +69,20 @@ public final class BackpackInventoryAccess {
             return SlotBackpack.isValidItem(stack);
         }
         return inventory.isItemValidForSlot(slot, stack);
+    }
+
+    private static int forestryStorageSlots(ItemStack backpackStack, int fallback) {
+        try {
+            Class<?> adapterClass =
+                Class.forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
+            Object result = adapterClass.getMethod("storageSlots", ItemStack.class, Integer.TYPE)
+                .invoke(null, backpackStack, Integer.valueOf(fallback));
+            return result instanceof Integer ? ((Integer) result).intValue() : fallback;
+        } catch (ReflectiveOperationException ignored) {
+            return fallback;
+        } catch (LinkageError ignored) {
+            return fallback;
+        }
     }
 
     private static boolean isBradsStorage(BackpackKind kind) {
