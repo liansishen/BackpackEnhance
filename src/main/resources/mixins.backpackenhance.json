@@ -12,6 +12,7 @@
   ],
   "client": [
     "MPlayerControllerMP",
+    "MGuiScreen",
     "MGuiContainer",
     "MModularGui",
     "MModularUI2Draw",

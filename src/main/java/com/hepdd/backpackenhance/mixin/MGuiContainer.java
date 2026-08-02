@@ -91,6 +91,9 @@ public abstract class MGuiContainer implements OverlayGuiContainerAccess {
 
     @Inject(method = "keyTyped", at = @At("HEAD"), cancellable = true)
     private void backpackenhance$keyTyped(char typedChar, int keyCode, CallbackInfo ci) {
+        if (OverlayController.isTextInputFocused((GuiContainer) (Object) this)) {
+            return;
+        }
         if (OverlayController.handleOverlayToggleKey(keyCode)) {
             ci.cancel();
             return;

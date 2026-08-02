@@ -78,7 +78,8 @@ public class OverlayShiftInHandler {
             return false;
         }
 
-        IInventory backpackInventory = SNAPSHOT_FACTORY.createInventory(player, activeTab.kind, backpackStack);
+        IInventory backpackInventory =
+            SNAPSHOT_FACTORY.createInventory(player, activeTab.kind, backpackStack, activeTab.playerSlot);
         if (backpackInventory == null) {
             return false;
         }

@@ -267,9 +267,13 @@ public final class OverlayGuiTextures {
         draw(x, y, u, TAB_V, TAB_W, TAB_H);
     }
 
-    public static void drawTitleButton(int x, int y, boolean hovered) {
+    public static void drawSmallButton(int x, int y, boolean hovered) {
         int u = hovered ? BTN_HOVER_U : BTN_U;
         draw(x, y, u, BTN_V, BTN_SIZE, BTN_SIZE);
+    }
+
+    public static void drawTitleButton(int x, int y, boolean hovered) {
+        drawSmallButton(x, y, hovered);
         // minimize glyph overlaid
         draw(x, y, MINIMIZE_U, BTN_V, BTN_SIZE, BTN_SIZE);
     }

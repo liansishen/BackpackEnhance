@@ -7,6 +7,7 @@ import com.hepdd.backpackenhance.net.packet.PacketOverlayClick;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayDeposit;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayDrag;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayExtract;
+import com.hepdd.backpackenhance.net.packet.PacketOverlayForestryModeCycle;
 import com.hepdd.backpackenhance.net.packet.PacketOverlaySettings;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayState;
 import com.hepdd.backpackenhance.net.packet.PacketRequestOverlay;
@@ -32,5 +33,10 @@ public final class NetworkHandler {
         INSTANCE.registerMessage(PacketOverlaySettings.Handler.class, PacketOverlaySettings.class, 6, Side.SERVER);
         INSTANCE.registerMessage(PacketOverlayExtract.Handler.class, PacketOverlayExtract.class, 7, Side.SERVER);
         INSTANCE.registerMessage(PacketOverlayDeposit.Handler.class, PacketOverlayDeposit.class, 8, Side.SERVER);
+        INSTANCE.registerMessage(
+            PacketOverlayForestryModeCycle.Handler.class,
+            PacketOverlayForestryModeCycle.class,
+            9,
+            Side.SERVER);
     }
 }

@@ -10,7 +10,7 @@ import com.darkona.adventurebackpack.util.BackpackUtils;
 
 /**
  * Resolves the accent color for overlay tab strips from the backpack item itself:
- * dye/meta for Brad's, skin/type body color for AdventureBackpack.
+ * dye/meta for Brad's, skin/type body color for AdventureBackpack, definition color for Forestry.
  */
 public final class BackpackTabColors {
 
@@ -33,7 +33,24 @@ public final class BackpackTabColors {
         if (kind == BackpackKind.BRADS || kind == BackpackKind.BRADS_WORKBENCH || kind == BackpackKind.BRADS_ENDER) {
             return resolveBrads(stack, kind);
         }
+        if (kind == BackpackKind.FORESTRY) {
+            return resolveForestry(stack, kind);
+        }
         return kind.color;
+    }
+
+    private static int resolveForestry(ItemStack stack, BackpackKind kind) {
+        try {
+            Class<?> adapterClass =
+                Class.forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
+            Object result = adapterClass.getMethod("primaryColor", ItemStack.class, Integer.TYPE)
+                .invoke(null, stack, Integer.valueOf(kind.color));
+            return result instanceof Integer ? ((Integer) result).intValue() : kind.color;
+        } catch (ReflectiveOperationException ignored) {
+            return kind.color;
+        } catch (LinkageError ignored) {
+            return kind.color;
+        }
     }
 
     /**

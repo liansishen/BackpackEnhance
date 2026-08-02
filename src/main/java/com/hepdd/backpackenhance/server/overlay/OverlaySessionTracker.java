@@ -46,6 +46,14 @@ public final class OverlaySessionTracker {
         return ACTIVE_TABS.containsKey(player.getUniqueID());
     }
 
+    public static boolean isCurrentExpandedSession(EntityPlayerMP player, int sessionId) {
+        UUID id = player.getUniqueID();
+        Integer current = SESSION_IDS.get(id);
+        Boolean minimized = OVERLAY_MINIMIZED.get(id);
+        return current != null && current.intValue() == sessionId
+            && (minimized == null || !minimized.booleanValue());
+    }
+
     /**
      * Clear only if the close packet matches the current session (avoids late Close wiping a
      * newer Request).

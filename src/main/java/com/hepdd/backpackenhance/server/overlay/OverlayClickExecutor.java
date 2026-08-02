@@ -405,7 +405,7 @@ public class OverlayClickExecutor {
             return null;
         }
 
-        IInventory inventory = snapshotFactory.createInventory(player, tab.kind, backpackStack);
+        IInventory inventory = snapshotFactory.createInventory(player, tab.kind, backpackStack, tab.playerSlot);
         if (inventory == null) {
             return null;
         }

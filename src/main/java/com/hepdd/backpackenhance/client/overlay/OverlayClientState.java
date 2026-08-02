@@ -32,7 +32,11 @@ public final class OverlayClientState {
                 snapshot.kind,
                 snapshot.backpackStack,
                 snapshot.columns,
-                snapshot.storageSlots);
+                snapshot.storageSlots,
+                snapshot.modeId,
+                snapshot.nextModeId,
+                snapshot.modeCycleAvailable,
+                snapshot.resupplyEnabled);
             ItemStack[] stacks = new ItemStack[snapshot.storageSlots];
             for (OverlaySlotSnapshot slot : snapshot.slots) {
                 if (slot.slot >= 0 && slot.slot < stacks.length) {
@@ -43,10 +47,28 @@ public final class OverlayClientState {
             converted.add(tab);
         }
         syncedTabs = converted;
+        synchronizeBackpackModes(converted);
         // Hold cursor until tabs are applied on the client tick (same apply step).
         pendingCursor = cursorStack == null ? null : cursorStack.copy();
         hasPendingCursor = true;
         hasState = true;
+    }
+
+    private static void synchronizeBackpackModes(List<BackpackTab> tabs) {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null || mc.thePlayer.inventory == null) {
+            return;
+        }
+        for (BackpackTab tab : tabs) {
+            if (!tab.modeCycleAvailable || tab.stack == null || tab.playerSlot < 0
+                || tab.playerSlot >= mc.thePlayer.inventory.mainInventory.length) {
+                continue;
+            }
+            ItemStack local = mc.thePlayer.inventory.mainInventory[tab.playerSlot];
+            if (local != null && local.getItem() == tab.stack.getItem()) {
+                local.setItemDamage(tab.stack.getItemDamage());
+            }
+        }
     }
 
     /**
