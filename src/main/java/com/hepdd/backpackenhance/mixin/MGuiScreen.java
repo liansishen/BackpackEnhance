@@ -15,10 +15,8 @@ public abstract class MGuiScreen {
 
     @Inject(method = "handleMouseInput", at = @At("HEAD"), cancellable = true)
     private void backpackenhance$handleMouseInput(CallbackInfo ci) {
-        if (OverlayController.handleMouseWheelInput(
-            (GuiScreen) (Object) this,
-            Mouse.getEventDWheel(),
-            Mouse.getEventNanoseconds())) {
+        if (OverlayController
+            .handleMouseWheelInput((GuiScreen) (Object) this, Mouse.getEventDWheel(), Mouse.getEventNanoseconds())) {
             ci.cancel();
         }
     }

@@ -231,7 +231,9 @@ public class BackpackOverlayPanel extends Gui {
 
         int column = relativeX / SLOT_SIZE;
         int visibleRow = relativeY / SLOT_SIZE;
-        if (column < 0 || column >= columns || visibleRow < 0 || visibleRow >= visibleRows
+        if (column < 0 || column >= columns
+            || visibleRow < 0
+            || visibleRow >= visibleRows
             || relativeX % SLOT_SIZE >= 17
             || relativeY % SLOT_SIZE >= 17) {
             return null;
@@ -268,8 +270,7 @@ public class BackpackOverlayPanel extends Gui {
         }
         updateLayout(gui);
         BackpackTab activeTab = getActiveTab();
-        return hasVerticalScroll(activeTab)
-            && getScrollbarTrackHeight() > 0
+        return hasVerticalScroll(activeTab) && getScrollbarTrackHeight() > 0
             && getScrollbarX() + SCROLLBAR_WIDTH <= lastX + lastWidth - 2
             && isMouseInside(
                 mouseX,
@@ -331,7 +332,8 @@ public class BackpackOverlayPanel extends Gui {
 
     public boolean isModeButton(int mouseX, int mouseY) {
         BackpackTab activeTab = getActiveTab();
-        return !Config.overlayMinimized && activeTab != null && activeTab.modeCycleAvailable
+        return !Config.overlayMinimized && activeTab != null
+            && activeTab.modeCycleAvailable
             && isMouseInside(mouseX, mouseY, getModeButtonX(), lastY + 2, TITLE_BTN, TITLE_BTN);
     }
 
@@ -512,9 +514,8 @@ public class BackpackOverlayPanel extends Gui {
         } else {
             lastWidth = Math.min(lastWidth, Math.max(1, gui.width));
             lastHeight = Math.min(lastHeight, Math.max(1, gui.height));
-            int availableRows = Math.max(
-                0,
-                (lastHeight - TITLE_HEIGHT - TAB_HEIGHT - TAB_TO_SLOT_GAP - PADDING) / SLOT_SIZE);
+            int availableRows = Math
+                .max(0, (lastHeight - TITLE_HEIGHT - TAB_HEIGHT - TAB_TO_SLOT_GAP - PADDING) / SLOT_SIZE);
             visibleRows = Math.min(rows, Math.min(MAX_VISIBLE_ROWS, availableRows));
             if (visibleRows > 0) {
                 lastHeight = TITLE_HEIGHT + TAB_HEIGHT + TAB_TO_SLOT_GAP + PADDING + visibleRows * SLOT_SIZE;
@@ -553,7 +554,8 @@ public class BackpackOverlayPanel extends Gui {
         int y = lastY + 2;
         boolean hovered = isMouseInside(mouseX, mouseY, x, y, TITLE_BTN, TITLE_BTN);
         OverlayGuiTextures.drawSmallButton(x, y, hovered && !modeCyclePending);
-        minecraft.fontRenderer.drawString(modeGlyph(tab.modeId), x + 3, y + 2, modeCyclePending ? COL_TEXT_DIM : COL_TEXT);
+        minecraft.fontRenderer
+            .drawString(modeGlyph(tab.modeId), x + 3, y + 2, modeCyclePending ? COL_TEXT_DIM : COL_TEXT);
         OverlayGuiTextures.bind();
     }
 
@@ -851,14 +853,11 @@ public class BackpackOverlayPanel extends Gui {
             return false;
         }
         int viewportRight = hasVerticalScroll(activeTab) ? getScrollbarX() : lastX + lastWidth - 2;
-        int gridWidth = Math.min(
-            getDisplayColumns() * SLOT_SIZE,
-            Math.max(0, viewportRight - getSlotGridX()));
+        int gridWidth = Math.min(getDisplayColumns() * SLOT_SIZE, Math.max(0, viewportRight - getSlotGridX()));
         if (isMouseInside(mouseX, mouseY, getSlotGridX(), getSlotGridY(), gridWidth, getSlotViewportHeight())) {
             return true;
         }
-        return hasVerticalScroll(activeTab)
-            && getScrollbarX() + SCROLLBAR_WIDTH <= lastX + lastWidth - 2
+        return hasVerticalScroll(activeTab) && getScrollbarX() + SCROLLBAR_WIDTH <= lastX + lastWidth - 2
             && isMouseInside(
                 mouseX,
                 mouseY,
@@ -926,9 +925,8 @@ public class BackpackOverlayPanel extends Gui {
         if (tab == null) {
             return;
         }
-        scrollRowsByPlayerSlot.put(
-            Integer.valueOf(tab.playerSlot),
-            Integer.valueOf(clamp(row, 0, getMaxScrollRow(tab))));
+        scrollRowsByPlayerSlot
+            .put(Integer.valueOf(tab.playerSlot), Integer.valueOf(clamp(row, 0, getMaxScrollRow(tab))));
     }
 
     private void clampAllScrollRows() {
@@ -1071,8 +1069,8 @@ public class BackpackOverlayPanel extends Gui {
             BackpackTab hovered = tabs.get(index);
             lines.add(hovered.displayName);
             lines.add(
-                EnumChatFormatting.GRAY.toString() + occupiedSlots(hovered) + "/" + hovered.storageSlots + " "
-                    + tr("gui.backpackenhance.tooltip.slots"));
+                EnumChatFormatting.GRAY.toString() + occupiedSlots(
+                    hovered) + "/" + hovered.storageSlots + " " + tr("gui.backpackenhance.tooltip.slots"));
             drawSimpleTooltip(lines, mouseX, mouseY);
         }
     }

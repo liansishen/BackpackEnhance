@@ -60,7 +60,8 @@ public final class OverlayClientState {
             return;
         }
         for (BackpackTab tab : tabs) {
-            if (!tab.modeCycleAvailable || tab.stack == null || tab.playerSlot < 0
+            if (!tab.modeCycleAvailable || tab.stack == null
+                || tab.playerSlot < 0
                 || tab.playerSlot >= mc.thePlayer.inventory.mainInventory.length) {
                 continue;
             }

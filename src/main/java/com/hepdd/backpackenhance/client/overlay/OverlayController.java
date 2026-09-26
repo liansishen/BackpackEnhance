@@ -344,7 +344,8 @@ public class OverlayController {
     }
 
     private boolean handleMouseWheel(GuiScreen gui, int wheelDelta, long eventNanos) {
-        if (eventNanos == lastHandledWheelEventNanos || gui != activeGui || minecraft.currentScreen != activeGui
+        if (eventNanos == lastHandledWheelEventNanos || gui != activeGui
+            || minecraft.currentScreen != activeGui
             || tabs.isEmpty()) {
             return false;
         }
@@ -361,8 +362,7 @@ public class OverlayController {
 
         ScaledResolution scaled = new ScaledResolution(minecraft, minecraft.displayWidth, minecraft.displayHeight);
         int mouseX = Mouse.getEventX() * scaled.getScaledWidth() / minecraft.displayWidth;
-        int mouseY = scaled.getScaledHeight()
-            - Mouse.getEventY() * scaled.getScaledHeight() / minecraft.displayHeight
+        int mouseY = scaled.getScaledHeight() - Mouse.getEventY() * scaled.getScaledHeight() / minecraft.displayHeight
             - 1;
 
         // The scrollbar always owns the wheel, even while carrying an item.

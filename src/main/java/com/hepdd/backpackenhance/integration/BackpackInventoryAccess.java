@@ -22,9 +22,8 @@ public final class BackpackInventoryAccess {
             }
         }
         if (kind == BackpackKind.FORESTRY) {
-            return Math.min(
-                forestryStorageSlots(backpackStack, inventory.getSizeInventory()),
-                inventory.getSizeInventory());
+            return Math
+                .min(forestryStorageSlots(backpackStack, inventory.getSizeInventory()), inventory.getSizeInventory());
         }
         return inventory.getSizeInventory();
     }
@@ -73,8 +72,8 @@ public final class BackpackInventoryAccess {
 
     private static int forestryStorageSlots(ItemStack backpackStack, int fallback) {
         try {
-            Class<?> adapterClass =
-                Class.forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
+            Class<?> adapterClass = Class
+                .forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
             Object result = adapterClass.getMethod("storageSlots", ItemStack.class, Integer.TYPE)
                 .invoke(null, backpackStack, Integer.valueOf(fallback));
             return result instanceof Integer ? ((Integer) result).intValue() : fallback;

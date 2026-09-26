@@ -41,8 +41,8 @@ public final class BackpackTabColors {
 
     private static int resolveForestry(ItemStack stack, BackpackKind kind) {
         try {
-            Class<?> adapterClass =
-                Class.forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
+            Class<?> adapterClass = Class
+                .forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
             Object result = adapterClass.getMethod("primaryColor", ItemStack.class, Integer.TYPE)
                 .invoke(null, stack, Integer.valueOf(kind.color));
             return result instanceof Integer ? ((Integer) result).intValue() : kind.color;

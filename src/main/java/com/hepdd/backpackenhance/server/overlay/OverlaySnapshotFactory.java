@@ -48,8 +48,7 @@ public class OverlaySnapshotFactory {
             slots.add(new OverlaySlotSnapshot(i, stack == null ? null : stack.copy()));
         }
 
-        ForestryModeBridge.ModeState mode = tab.kind == BackpackKind.FORESTRY
-            ? ForestryModeBridge.state(liveStack)
+        ForestryModeBridge.ModeState mode = tab.kind == BackpackKind.FORESTRY ? ForestryModeBridge.state(liveStack)
             : ForestryModeBridge.ModeState.NONE;
         return new OverlayTabSnapshot(
             tab.tabId,
@@ -103,13 +102,14 @@ public class OverlaySnapshotFactory {
 
     private IInventory createForestryInventory(EntityPlayerMP player, ItemStack stack, int playerSlot) {
         try {
-            Class<?> adapterClass =
-                Class.forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
-            return (IInventory) adapterClass.getMethod(
-                "createInventory",
-                net.minecraft.entity.player.EntityPlayer.class,
-                ItemStack.class,
-                Integer.TYPE)
+            Class<?> adapterClass = Class
+                .forName("com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess");
+            return (IInventory) adapterClass
+                .getMethod(
+                    "createInventory",
+                    net.minecraft.entity.player.EntityPlayer.class,
+                    ItemStack.class,
+                    Integer.TYPE)
                 .invoke(null, player, stack, Integer.valueOf(playerSlot));
         } catch (ReflectiveOperationException ignored) {
             return null;

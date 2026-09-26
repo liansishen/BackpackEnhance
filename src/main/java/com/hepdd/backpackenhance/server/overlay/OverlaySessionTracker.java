@@ -50,8 +50,7 @@ public final class OverlaySessionTracker {
         UUID id = player.getUniqueID();
         Integer current = SESSION_IDS.get(id);
         Boolean minimized = OVERLAY_MINIMIZED.get(id);
-        return current != null && current.intValue() == sessionId
-            && (minimized == null || !minimized.booleanValue());
+        return current != null && current.intValue() == sessionId && (minimized == null || !minimized.booleanValue());
     }
 
     /**

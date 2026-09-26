@@ -54,7 +54,8 @@ public final class ForestryBackpackAccess {
         if (backpack.getDefinition() == null) {
             return fallback;
         }
-        return 0xFF000000 | (backpack.getDefinition().getPrimaryColour() & 0xFFFFFF);
+        return 0xFF000000 | (backpack.getDefinition()
+            .getPrimaryColour() & 0xFFFFFF);
     }
 
     public static boolean isItemValid(ItemStack backpackStack, ItemStack candidate) {
@@ -62,7 +63,8 @@ public final class ForestryBackpackAccess {
             return candidate == null;
         }
         ItemBackpack backpack = (ItemBackpack) backpackStack.getItem();
-        return backpack.getDefinition() != null && backpack.getDefinition().isValidItem(candidate);
+        return backpack.getDefinition() != null && backpack.getDefinition()
+            .isValidItem(candidate);
     }
 
     public static boolean supportsModeCycle(ItemStack stack) {
@@ -73,7 +75,8 @@ public final class ForestryBackpackAccess {
         if (!supportsModeCycle(stack)) {
             return NO_MODE;
         }
-        return ItemBackpack.getMode(stack).ordinal();
+        return ItemBackpack.getMode(stack)
+            .ordinal();
     }
 
     public static int nextModeId(ItemStack stack) {

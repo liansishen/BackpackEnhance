@@ -6,8 +6,7 @@ public final class ForestryModeBridge {
 
     public static final int NO_MODE = -1;
 
-    private static final String ACCESS_CLASS =
-        "com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess";
+    private static final String ACCESS_CLASS = "com.hepdd.backpackenhance.integration.forestry.ForestryBackpackAccess";
 
     private ForestryModeBridge() {}
 
@@ -72,15 +71,13 @@ public final class ForestryModeBridge {
     public static boolean cycleMode(ItemStack stack, int expectedMode, boolean expectedHasUid, int expectedUid) {
         try {
             Class<?> access = Class.forName(ACCESS_CLASS);
-            return ((Boolean) access
-                .getMethod("cycleMode", ItemStack.class, Integer.TYPE, Boolean.TYPE, Integer.TYPE)
+            return ((Boolean) access.getMethod("cycleMode", ItemStack.class, Integer.TYPE, Boolean.TYPE, Integer.TYPE)
                 .invoke(
                     null,
                     stack,
                     Integer.valueOf(expectedMode),
                     Boolean.valueOf(expectedHasUid),
-                    Integer.valueOf(expectedUid)))
-                        .booleanValue();
+                    Integer.valueOf(expectedUid))).booleanValue();
         } catch (ReflectiveOperationException ignored) {
             return false;
         } catch (LinkageError ignored) {

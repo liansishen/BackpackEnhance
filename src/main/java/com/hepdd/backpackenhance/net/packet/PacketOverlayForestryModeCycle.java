@@ -79,12 +79,8 @@ public class PacketOverlayForestryModeCycle implements IMessage {
                 && message.playerSlot < player.inventory.mainInventory.length) {
                 ItemStack liveStack = player.inventory.mainInventory[message.playerSlot];
                 BackpackKind liveKind = scanner.detectKind(liveStack);
-                if (liveKind == BackpackKind.FORESTRY
-                    && ForestryModeBridge.cycleMode(
-                        liveStack,
-                        message.expectedMode,
-                        message.expectedHasUid,
-                        message.expectedUid)) {
+                if (liveKind == BackpackKind.FORESTRY && ForestryModeBridge
+                    .cycleMode(liveStack, message.expectedMode, message.expectedHasUid, message.expectedUid)) {
                     player.inventory.markDirty();
                     if (player.openContainer != null) {
                         player.openContainer.detectAndSendChanges();
