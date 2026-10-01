@@ -37,6 +37,10 @@ When an AE terminal is open, wireless tabs connected to the same ME network are 
 
 Wireless tabs provide stored-item access. NEI recipe lookup works over their items. NEI recipe auto-fill, material/tool borrowing, ME crafting requests, fluids, and terminal view-cell filtering are outside the current wireless integration.
 
+## Development and releases
+
+Changes go through a pull request to `main` and CI verification. Releases are triggered by version tags on commits that passed main-branch CI. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
