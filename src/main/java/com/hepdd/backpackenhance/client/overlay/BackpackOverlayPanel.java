@@ -23,13 +23,15 @@ import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
 import com.hepdd.backpackenhance.Config;
+import com.hepdd.backpackenhance.client.overlay.OverlayGuiTextures.Sprite;
+import com.hepdd.backpackenhance.client.overlay.OverlayTheme.Color;
 import com.hepdd.backpackenhance.integration.BackpackTab;
 import com.hepdd.backpackenhance.integration.nei.NeiOverlayIntegration;
 
 import cpw.mods.fml.common.Loader;
 
 /**
- * Client-side overlay chrome: texture-atlas panel/slots/tabs ({@link OverlayGuiTextures}),
+ * Client-side overlay chrome: component textures ({@link OverlayGuiTextures}),
  * 9-column slot grid, title controls, and drag-place previews matching server distribute logic.
  * Items and font text remain code-rendered; chrome is overridable via resource packs.
  */
@@ -46,22 +48,17 @@ public class BackpackOverlayPanel extends Gui {
     private static final int TAB_TO_SLOT_GAP = 3;
     private static final int SEARCH_HEIGHT = 18;
     private static final int MINIMIZED_SIZE = 20;
-    private static final int TAB_WIDTH = 26;
+    private static final int TAB_BTN_WIDTH = 22;
+    private static final int TAB_WIDTH = TAB_BTN_WIDTH + 2;
+    private static final int TAB_ICON_SIZE = 14;
     private static final int TITLE_BTN = 12;
     /** Width of NEI-style prev/next tab arrows. */
     private static final int TAB_ARROW_W = 10;
     private static final int MAX_VISIBLE_ROWS = 6;
-    private static final int WIRELESS_VISIBLE_ROWS = 5;
+    private static final int WIRELESS_VISIBLE_ROWS = 6;
     private static final int SCROLLBAR_GAP = 3;
-    private static final int SCROLLBAR_WIDTH = 6;
-    private static final int SCROLLBAR_MIN_THUMB_HEIGHT = 8;
-
-    /** Title / tab arrow text color (font is not part of the texture atlas). */
-    private static final int COL_TEXT = 0xFF404040;
-    private static final int COL_TEXT_DIM = 0xFF505050;
-    private static final int COL_SCROLL_TRACK = 0xFF2A2A2A;
-    private static final int COL_SCROLL_THUMB = 0xFF8A8A8A;
-    private static final int COL_SCROLL_THUMB_HOVER = 0xFFAAAAAA;
+    private static final int SCROLLBAR_WIDTH = 12;
+    private static final int SCROLLBAR_THUMB_HEIGHT = 15;
 
     private final Minecraft minecraft = Minecraft.getMinecraft();
     private final RenderItem renderItem = RenderItem.getInstance();
@@ -144,7 +141,7 @@ public class BackpackOverlayPanel extends Gui {
                 activeTabIndex = index;
                 preferredTabId = pendingActiveTabId = tab.tabId;
                 int width = getTabStripAvailableWidth();
-                tabPage = index / getPageSize(width, needsTabPaging(width));
+                tabPage = index / getPageSize(width);
                 scrollRowsByPlayerSlot.put(tab.playerSlot, tab.isWireless() ? 0 : slot / getDisplayColumns());
                 clearDragPreview();
                 return true;
@@ -186,7 +183,7 @@ public class BackpackOverlayPanel extends Gui {
             searchX = x;
             searchY = y;
             searchWidth = width;
-            searchField = new GuiTextField(minecraft.fontRenderer, x, y, width, 14);
+            searchField = new OverlaySearchField(minecraft.fontRenderer, x, y, width, 14);
             searchField.setMaxStringLength(128);
             searchField.setText(searchText);
             searchField.setFocused(focused);
@@ -257,7 +254,6 @@ public class BackpackOverlayPanel extends Gui {
         GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
         OverlayGuiTextures.setZLevel(this.zLevel);
-        OverlayGuiTextures.bind();
 
         if (Config.overlayMinimized) {
             renderMinimized(lastX, lastY);
@@ -277,14 +273,10 @@ public class BackpackOverlayPanel extends Gui {
             renderModeButton(activeTab, mouseX, mouseY);
         }
 
-        // Font rebinds the glyph texture — re-bind atlas before further chrome.
         FontRenderer font = minecraft.fontRenderer;
         int titleX = lastX + 3 + TITLE_BTN + 4;
-        font.drawString(tr("gui.backpackenhance.title"), titleX, lastY + 4, COL_TEXT);
+        font.drawString(tr("gui.backpackenhance.title"), titleX, lastY + 4, OverlayTheme.color(Color.TEXT));
 
-        OverlayGuiTextures.bind();
-
-        OverlayGuiTextures.bind();
         OverlayGuiTextures.drawBodyFill(lastX + 2, lastY + TITLE_HEIGHT, lastWidth - 4, TAB_HEIGHT);
         renderTabs(lastX + PADDING, lastY + TITLE_HEIGHT + 2, lastWidth - PADDING * 2, mouseX, mouseY);
         renderSlotGrid(activeTab, getSlotGridX(), getSlotGridY(), mouseX, mouseY);
@@ -294,13 +286,10 @@ public class BackpackOverlayPanel extends Gui {
                 tr(activeTab.wirelessLoading ? "gui.backpackenhance.loading" : "gui.backpackenhance.search"),
                 searchX + 4,
                 searchY + 3,
-                0x808080);
+                OverlayTheme.color(Color.SEARCH_HINT));
         }
-        if (hasVerticalScroll(activeTab)) {
-            renderScrollbar(activeTab, mouseX, mouseY);
-        }
+        renderScrollbar(activeTab, mouseX, mouseY);
         // Keep outer bevel on top of any inset content that touches the rim.
-        OverlayGuiTextures.bind();
         OverlayGuiTextures.drawPanelFrame(lastX, lastY, lastWidth, lastHeight);
     }
 
@@ -376,8 +365,9 @@ public class BackpackOverlayPanel extends Gui {
         int relativeX = mouseX - getSlotGridX();
         int relativeY = mouseY - getSlotGridY();
         int viewportHeight = getSlotViewportHeight();
-        int viewportRight = hasVerticalScroll(activeTab) ? getScrollbarX() : lastX + lastWidth - 2;
-        int gridWidth = Math.min(columns * SLOT_SIZE, Math.max(0, viewportRight - getSlotGridX()));
+        int viewportRight = getScrollbarX();
+        int gridWidth = Math
+            .min(columns * SLOT_SIZE, Math.max(0, viewportRight - getSlotGridX()) / SLOT_SIZE * SLOT_SIZE);
         if (relativeX < 0 || relativeX >= gridWidth || relativeY < 0 || relativeY >= viewportHeight) {
             return null;
         }
@@ -634,22 +624,10 @@ public class BackpackOverlayPanel extends Gui {
     }
 
     private int getExpandedWidth(int columns) {
-        int gridWidth = PADDING * 2 + columns * SLOT_SIZE;
-        if (needsScrollbarGutter()) {
-            gridWidth += SCROLLBAR_GAP + SCROLLBAR_WIDTH;
-        }
+        int gridWidth = PADDING * 2 + columns * SLOT_SIZE + SCROLLBAR_GAP + SCROLLBAR_WIDTH;
         int automaticWidth = Math.max(128, gridWidth);
         int configuredWidth = Config.overlayWidth > 0 ? Config.overlayWidth : automaticWidth;
         return Math.max(configuredWidth, gridWidth);
-    }
-
-    private boolean needsScrollbarGutter() {
-        for (BackpackTab tab : tabs) {
-            if (tab.isWireless() || tab.storageSlots > getDisplayColumns() * MAX_VISIBLE_ROWS) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private int getScreenVisibleRows(GuiScreen gui) {
@@ -716,19 +694,31 @@ public class BackpackOverlayPanel extends Gui {
     }
 
     private void renderMinimized(int x, int y) {
-        OverlayGuiTextures.bind();
         OverlayGuiTextures.drawPanel(x, y, MINIMIZED_SIZE, MINIMIZED_SIZE);
-        minecraft.fontRenderer.drawString("B", x + 7, y + 6, COL_TEXT);
+        OverlayGuiTextures.drawIcon(Sprite.EXPAND, x, y);
     }
 
     private void renderModeButton(BackpackTab tab, int mouseX, int mouseY) {
         int x = getModeButtonX();
         int y = lastY + 2;
         boolean hovered = isMouseInside(mouseX, mouseY, x, y, TITLE_BTN, TITLE_BTN);
-        OverlayGuiTextures.drawSmallButton(x, y, hovered && !modeCyclePending);
-        minecraft.fontRenderer
-            .drawString(modeGlyph(tab.modeId), x + 3, y + 2, modeCyclePending ? COL_TEXT_DIM : COL_TEXT);
-        OverlayGuiTextures.bind();
+        OverlayGuiTextures.drawSmallButton(x, y, hovered, !modeCyclePending);
+        Sprite icon;
+        switch (tab.modeId) {
+            case 1:
+                icon = Sprite.MODE_LOCKED;
+                break;
+            case 2:
+                icon = Sprite.MODE_RECEIVE;
+                break;
+            case 3:
+                icon = Sprite.MODE_RESUPPLY;
+                break;
+            default:
+                icon = Sprite.MODE_NORMAL;
+                break;
+        }
+        OverlayGuiTextures.drawIcon(icon, x, y);
     }
 
     private boolean handleModeButtonClick(int mouseX, int mouseY) {
@@ -761,20 +751,6 @@ public class BackpackOverlayPanel extends Gui {
         return lastX + lastWidth - TITLE_BTN - 3;
     }
 
-    private static String modeGlyph(int modeId) {
-        switch (modeId) {
-            case 1:
-                return "L";
-            case 2:
-                return "R";
-            case 3:
-                return "S";
-            case 0:
-            default:
-                return "N";
-        }
-    }
-
     private static String modeName(int modeId) {
         switch (modeId) {
             case 1:
@@ -791,7 +767,7 @@ public class BackpackOverlayPanel extends Gui {
 
     private void renderTabs(int x, int y, int availableWidth, int mouseX, int mouseY) {
         boolean paging = needsTabPaging(availableWidth);
-        int pageSize = getPageSize(availableWidth, paging);
+        int pageSize = getPageSize(availableWidth);
         clampTabPage(pageSize);
 
         int tabsX = x;
@@ -810,7 +786,6 @@ public class BackpackOverlayPanel extends Gui {
             tabsX = x + TAB_ARROW_W + 1;
         }
 
-        OverlayGuiTextures.bind();
         int offset = tabPage * pageSize;
         int count = Math.min(pageSize, Math.max(0, tabs.size() - offset));
         for (int i = 0; i < count; i++) {
@@ -819,26 +794,22 @@ public class BackpackOverlayPanel extends Gui {
             int tabX = tabsX + i * TAB_WIDTH;
             boolean active = tabIndex == activeTabIndex;
             OverlayGuiTextures.drawTab(tabX, y, active);
-            // Dye accent strip (dynamic color — not in the atlas).
-            drawRect(tabX, y, tabX + 2, y + TAB_BTN_HEIGHT, tab.getAccentColor());
-            GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
-            // Center item icon (no index number).
-            renderItem(tab.stack, tabX + (TAB_WIDTH - 2 - 16) / 2, y + 1);
-            OverlayGuiTextures.bind();
+            OverlayGuiTextures.drawTabAccent(tabX, y, tab.getAccentColor());
+            GL11.glPushMatrix();
+            GL11.glTranslatef(tabX + (TAB_BTN_WIDTH - TAB_ICON_SIZE) / 2, y + (TAB_BTN_HEIGHT - TAB_ICON_SIZE) / 2, 0);
+            GL11.glScalef(TAB_ICON_SIZE / 16.0F, TAB_ICON_SIZE / 16.0F, 1.0F);
+            renderItem(tab.stack, 0, 0);
+            GL11.glPopMatrix();
         }
     }
 
     private boolean needsTabPaging(int availableWidth) {
-        return tabs.size() > Math.max(1, availableWidth / TAB_WIDTH);
+        return tabs.size() > getPageSize(availableWidth);
     }
 
-    /** How many tabs fit on one page (n). When paging, arrows reserve space on both sides. */
-    private int getPageSize(int availableWidth, boolean paging) {
-        int width = availableWidth;
-        if (paging) {
-            width -= TAB_ARROW_W * 2 + 2;
-        }
-        return Math.max(1, width / TAB_WIDTH);
+    /** Reserve arrow space so adding tabs keeps page capacity stable. */
+    private int getPageSize(int availableWidth) {
+        return Math.max(1, (availableWidth - TAB_ARROW_W * 2 - 2) / TAB_WIDTH);
     }
 
     private int getPageCount(int pageSize) {
@@ -853,7 +824,7 @@ public class BackpackOverlayPanel extends Gui {
     }
 
     private void clampTabPage() {
-        clampTabPage(getPageSize(getTabStripAvailableWidth(), needsTabPaging(getTabStripAvailableWidth())));
+        clampTabPage(getPageSize(getTabStripAvailableWidth()));
     }
 
     private void clampTabPage(int pageSize) {
@@ -873,7 +844,7 @@ public class BackpackOverlayPanel extends Gui {
         }
         int x = lastX + PADDING;
         int y = lastY + TITLE_HEIGHT + 2;
-        int pageSize = getPageSize(availableWidth, true);
+        int pageSize = getPageSize(availableWidth);
         int pageCount = getPageCount(pageSize);
 
         if (isMouseInside(mouseX, mouseY, x, y, TAB_ARROW_W, TAB_BTN_HEIGHT)) {
@@ -894,13 +865,8 @@ public class BackpackOverlayPanel extends Gui {
     }
 
     private void drawTabArrow(int x, int y, boolean left, boolean enabled, boolean hovered) {
-        OverlayGuiTextures.bind();
         OverlayGuiTextures.drawArrowButton(x, y, enabled, hovered);
-        int color = enabled ? COL_TEXT : COL_TEXT_DIM;
-        String glyph = left ? "<" : ">";
-        int textX = x + (TAB_ARROW_W - minecraft.fontRenderer.getStringWidth(glyph)) / 2;
-        minecraft.fontRenderer.drawString(glyph, textX, y + 5, color);
-        OverlayGuiTextures.bind();
+        OverlayGuiTextures.drawIcon(left ? Sprite.ARROW_LEFT : Sprite.ARROW_RIGHT, x, y);
     }
 
     private void renderSlotGrid(BackpackTab tab, int x, int y, int mouseX, int mouseY) {
@@ -909,13 +875,12 @@ public class BackpackOverlayPanel extends Gui {
         int firstSlot = firstRow * columns;
         List<Integer> slots = getVisibleSlots(tab);
         int lastSlot = Math.min(slots.size(), (firstRow + visibleRows) * columns);
-        int renderRight = hasVerticalScroll(tab) ? getScrollbarX() : lastX + lastWidth - 2;
+        int renderRight = getScrollbarX();
         Map<Integer, Integer> previewAmounts = computePreviewAmounts(tab);
         Predicate<ItemStack> neiFilter = Loader.isModLoaded("NotEnoughItems")
             ? NeiOverlayIntegration.inventorySearchFilter()
             : null;
 
-        OverlayGuiTextures.bind();
         for (int slot = firstSlot; slot < lastSlot; slot++) {
             int column = slot % columns;
             int visibleRow = slot / columns - firstRow;
@@ -957,7 +922,6 @@ public class BackpackOverlayPanel extends Gui {
             if (localMismatch || (neiFilter != null && !neiFilter.test(existing))) {
                 drawSearchShade(slotX + 1, slotY + 1);
             }
-            OverlayGuiTextures.bind();
         }
     }
 
@@ -969,18 +933,17 @@ public class BackpackOverlayPanel extends Gui {
         int trackY = getScrollbarY();
         int trackHeight = getScrollbarTrackHeight();
         int thumbY = getScrollbarThumbY(tab);
-        int thumbHeight = getScrollbarThumbHeight(tab);
+        int thumbHeight = getScrollbarThumbHeight();
         boolean hovered = isMouseInside(mouseX, mouseY, trackX, thumbY, SCROLLBAR_WIDTH, thumbHeight);
 
-        drawRect(trackX, trackY, trackX + SCROLLBAR_WIDTH, trackY + trackHeight, COL_SCROLL_TRACK);
-        drawRect(
+        OverlayGuiTextures.drawScrollbar(
             trackX,
+            trackY,
+            trackHeight,
             thumbY,
-            trackX + SCROLLBAR_WIDTH,
-            thumbY + thumbHeight,
-            hovered || scrollbarDragging ? COL_SCROLL_THUMB_HOVER : COL_SCROLL_THUMB);
-        GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
-        OverlayGuiTextures.bind();
+            thumbHeight,
+            hovered || scrollbarDragging,
+            hasVerticalScroll(tab));
     }
 
     private boolean handleScrollbarPress(int mouseX, int mouseY) {
@@ -997,7 +960,7 @@ public class BackpackOverlayPanel extends Gui {
         }
 
         int thumbY = getScrollbarThumbY(activeTab);
-        int thumbHeight = getScrollbarThumbHeight(activeTab);
+        int thumbHeight = getScrollbarThumbHeight();
         if (isMouseInside(mouseX, mouseY, trackX, thumbY, SCROLLBAR_WIDTH, thumbHeight)) {
             scrollbarDragging = true;
             scrollbarDragOffsetY = mouseY - thumbY;
@@ -1011,7 +974,7 @@ public class BackpackOverlayPanel extends Gui {
 
     private void setScrollRowFromThumbTop(BackpackTab tab, int thumbTop) {
         int maxScrollRow = getMaxScrollRow(tab);
-        int thumbTravel = getScrollbarTrackHeight() - getScrollbarThumbHeight(tab);
+        int thumbTravel = getScrollbarTrackHeight() - getScrollbarThumbHeight();
         if (maxScrollRow <= 0 || thumbTravel <= 0) {
             setScrollRow(tab, 0);
             return;
@@ -1038,8 +1001,9 @@ public class BackpackOverlayPanel extends Gui {
         if (activeTab == null) {
             return false;
         }
-        int viewportRight = hasVerticalScroll(activeTab) ? getScrollbarX() : lastX + lastWidth - 2;
-        int gridWidth = Math.min(getDisplayColumns() * SLOT_SIZE, Math.max(0, viewportRight - getSlotGridX()));
+        int viewportRight = getScrollbarX();
+        int gridWidth = Math
+            .min(getDisplayColumns() * SLOT_SIZE, Math.max(0, viewportRight - getSlotGridX()) / SLOT_SIZE * SLOT_SIZE);
         if (isMouseInside(mouseX, mouseY, getSlotGridX(), getSlotGridY(), gridWidth, getSlotViewportHeight())) {
             return true;
         }
@@ -1067,19 +1031,13 @@ public class BackpackOverlayPanel extends Gui {
         return getSlotViewportHeight();
     }
 
-    private int getScrollbarThumbHeight(BackpackTab tab) {
-        int totalRows = getDisplayRows(tab);
-        int trackHeight = getScrollbarTrackHeight();
-        if (totalRows <= 0 || trackHeight <= 0) {
-            return trackHeight;
-        }
-        int proportional = trackHeight * visibleRows / totalRows;
-        return Math.min(trackHeight, Math.max(Math.min(SCROLLBAR_MIN_THUMB_HEIGHT, trackHeight), proportional));
+    private int getScrollbarThumbHeight() {
+        return Math.min(SCROLLBAR_THUMB_HEIGHT, getScrollbarTrackHeight());
     }
 
     private int getScrollbarThumbY(BackpackTab tab) {
         int maxScrollRow = getMaxScrollRow(tab);
-        int thumbTravel = getScrollbarTrackHeight() - getScrollbarThumbHeight(tab);
+        int thumbTravel = getScrollbarTrackHeight() - getScrollbarThumbHeight();
         if (maxScrollRow <= 0 || thumbTravel <= 0) {
             return getScrollbarY();
         }
@@ -1087,7 +1045,7 @@ public class BackpackOverlayPanel extends Gui {
     }
 
     private boolean hasVerticalScroll(BackpackTab tab) {
-        return tab != null && getDisplayRows(tab) > visibleRows;
+        return tab != null && visibleRows > 0 && getDisplayRows(tab) > visibleRows;
     }
 
     private int getMaxScrollRow(BackpackTab tab) {
@@ -1126,7 +1084,6 @@ public class BackpackOverlayPanel extends Gui {
         boolean lighting = GL11.glIsEnabled(GL11.GL_LIGHTING);
         GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
-        OverlayGuiTextures.bind();
         OverlayGuiTextures.drawSlotHover(x, y);
         if (depth) {
             GL11.glEnable(GL11.GL_DEPTH_TEST);
@@ -1142,7 +1099,7 @@ public class BackpackOverlayPanel extends Gui {
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glPushMatrix();
         GL11.glTranslatef(0.0F, 0.0F, 150.0F);
-        drawRect(x, y, x + 16, y + 16, 0x80000000);
+        drawRect(x, y, x + 16, y + 16, OverlayTheme.color(Color.SEARCH_SHADE));
         GL11.glPopMatrix();
         if (depth) GL11.glEnable(GL11.GL_DEPTH_TEST);
         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
@@ -1346,8 +1303,10 @@ public class BackpackOverlayPanel extends Gui {
             tabsX = stripLeft + TAB_ARROW_W + 1;
         }
 
-        int pageSize = getPageSize(availableWidth, paging);
-        int local = (mouseX - tabsX) / TAB_WIDTH;
+        int pageSize = getPageSize(availableWidth);
+        int relativeX = mouseX - tabsX;
+        if (relativeX < 0 || relativeX % TAB_WIDTH >= TAB_BTN_WIDTH) return -1;
+        int local = relativeX / TAB_WIDTH;
         if (local < 0 || local >= pageSize) {
             return -1;
         }
@@ -1377,12 +1336,12 @@ public class BackpackOverlayPanel extends Gui {
         }
         drawTooltip(lines, x, y, width, height);
         for (int i = 0; i < lines.size(); i++) {
-            minecraft.fontRenderer.drawStringWithShadow(lines.get(i), x, y + i * 10, 0xFFFFFF);
+            minecraft.fontRenderer
+                .drawStringWithShadow(lines.get(i), x, y + i * 10, OverlayTheme.color(Color.TOOLTIP_TEXT));
         }
     }
 
     public void drawTooltip(List<String> lines, int x, int y, int width, int height) {
-        OverlayGuiTextures.bind();
         OverlayGuiTextures.drawTooltipBackground(x - 3, y - 3, width + 6, height + 3);
     }
 

@@ -151,7 +151,7 @@ public class WirelessInventoryTest {
     }
 
     @Test
-    public void wirelessSearchKeepsFiveRowsAndStableWidth() throws ReflectiveOperationException {
+    public void wirelessSearchKeepsSixRowsAndStableWidth() throws ReflectiveOperationException {
         BackpackOverlayPanel panel = new BackpackOverlayPanel();
         BackpackTab tab = new BackpackTab(1003, 3, BackpackKind.AE2_WIRELESS, new ItemStack(item), 9, 0);
         java.util.ArrayList<WirelessItemEntry> entries = new java.util.ArrayList<WirelessItemEntry>();
@@ -161,10 +161,10 @@ public class WirelessInventoryTest {
         int width = (int) panelMethod("getExpandedWidth", int.class).invoke(panel, 9);
         configurePanelSearch(panel);
         List<?> slots = (List<?>) panelMethod("getVisibleSlots", BackpackTab.class).invoke(panel, tab);
-        assertEquals(45, slots.size());
+        assertEquals(54, slots.size());
         assertEquals(1, slots.get(0));
         assertTrue((int) slots.get(1) < 0);
-        assertEquals(5, panelMethod("getDisplayRows", BackpackTab.class).invoke(panel, tab));
+        assertEquals(6, panelMethod("getDisplayRows", BackpackTab.class).invoke(panel, tab));
         assertEquals(width, panelMethod("getExpandedWidth", int.class).invoke(panel, 9));
     }
 
@@ -303,7 +303,7 @@ public class WirelessInventoryTest {
         for (int i = 0; i < 55; i++) entries.add(new WirelessItemEntry(tagged(i, 1), Long.MAX_VALUE));
         wireless.setWirelessEntries(entries);
         panel.setTabs(Collections.singletonList(wireless));
-        setPanelInt(panel, "visibleRows", 5);
+        setPanelInt(panel, "visibleRows", 6);
         Method scroll = panelMethod("scrollRows", BackpackTab.class, int.class);
         assertEquals(true, scroll.invoke(panel, wireless, -120));
         assertEquals(1, panelMethod("getScrollRow", BackpackTab.class).invoke(panel, wireless));
@@ -312,6 +312,107 @@ public class WirelessInventoryTest {
         panel.setTabs(Collections.singletonList(shortTab));
         assertEquals(false, scroll.invoke(panel, shortTab, -120));
         assertEquals(0, panelMethod("getScrollRow", BackpackTab.class).invoke(panel, shortTab));
+    }
+
+    @Test
+    public void shortTabsReserveScrollbarSpaceAndRejectDragging() throws ReflectiveOperationException {
+        BackpackOverlayPanel panel = new BackpackOverlayPanel();
+        BackpackTab shortTab = new BackpackTab(2, 2, BackpackKind.FORESTRY, new ItemStack(item), 9, 27);
+        panel.setTabs(Collections.singletonList(shortTab));
+        int width = (int) panelMethod("getExpandedWidth", int.class).invoke(panel, 9);
+        assertEquals(191, width);
+        setPanelInt(panel, "lastWidth", width);
+        setPanelInt(panel, "visibleRows", 3);
+        int x = (int) panelMethod("getScrollbarX").invoke(panel);
+        int y = (int) panelMethod("getScrollbarY").invoke(panel);
+        assertEquals(172, x);
+        assertEquals(15, panelMethod("getScrollbarThumbHeight").invoke(panel));
+        assertEquals(y, panelMethod("getScrollbarThumbY", BackpackTab.class).invoke(panel, shortTab));
+        assertEquals(false, panelMethod("hasVerticalScroll", BackpackTab.class).invoke(panel, shortTab));
+        assertEquals(false, panelMethod("handleScrollbarPress", int.class, int.class).invoke(panel, x + 6, y + 5));
+        assertEquals(false, panel.isScrollbarDragging());
+        panel.dragScrollbarTo(y + 100);
+        assertEquals(0, panelMethod("getScrollRow", BackpackTab.class).invoke(panel, shortTab));
+        assertNull(panel.getSlotClickAt(x + 1, y + 1));
+        BackpackTab wireless = new BackpackTab(1003, 3, BackpackKind.AE2_WIRELESS, new ItemStack(item), 9, 0);
+        panel.setTabs(Collections.singletonList(wireless));
+        assertEquals(width, panelMethod("getExpandedWidth", int.class).invoke(panel, 9));
+    }
+
+    @Test
+    public void fixedSizeScrollbarDragsToBothEndsAndDisablesAfterTabChange() throws ReflectiveOperationException {
+        BackpackOverlayPanel panel = new BackpackOverlayPanel();
+        BackpackTab tab = new BackpackTab(2, 2, BackpackKind.FORESTRY, new ItemStack(item), 9, 125);
+        panel.setTabs(Collections.singletonList(tab));
+        setPanelInt(panel, "lastWidth", 191);
+        setPanelInt(panel, "visibleRows", 6);
+        int x = (int) panelMethod("getScrollbarX").invoke(panel);
+        int y = (int) panelMethod("getScrollbarY").invoke(panel);
+        int trackHeight = (int) panelMethod("getScrollbarTrackHeight").invoke(panel);
+        assertEquals(108, trackHeight);
+        assertEquals(15, panelMethod("getScrollbarThumbHeight").invoke(panel));
+        Method press = panelMethod("handleScrollbarPress", int.class, int.class);
+        Method row = panelMethod("getScrollRow", BackpackTab.class);
+        assertEquals(true, press.invoke(panel, x + 11, y + 7));
+        assertTrue(panel.isScrollbarDragging());
+        panel.dragScrollbarTo(y + trackHeight + 100);
+        assertEquals(8, row.invoke(panel, tab));
+        assertEquals(y + trackHeight - 15, panelMethod("getScrollbarThumbY", BackpackTab.class).invoke(panel, tab));
+        assertEquals(15, panelMethod("getScrollbarThumbHeight").invoke(panel));
+        panel.dragScrollbarTo(y - 100);
+        assertEquals(0, row.invoke(panel, tab));
+        panel.releaseScrollbar();
+        assertEquals(false, press.invoke(panel, x + 12, y + 7));
+        assertEquals(true, press.invoke(panel, x + 6, y + trackHeight - 1));
+        assertEquals(8, row.invoke(panel, tab));
+        BackpackTab shortTab = new BackpackTab(3, 3, BackpackKind.FORESTRY, new ItemStack(item), 9, 27);
+        panel.setTabs(Collections.singletonList(shortTab));
+        panel.dragScrollbarTo(y + trackHeight);
+        assertEquals(false, panel.isScrollbarDragging());
+        assertEquals(0, row.invoke(panel, shortTab));
+    }
+
+    @Test
+    public void wirelessEmptyAndFilteredListsUseDisabledSixRowViewport() throws ReflectiveOperationException {
+        BackpackOverlayPanel panel = new BackpackOverlayPanel();
+        BackpackTab tab = new BackpackTab(1003, 3, BackpackKind.AE2_WIRELESS, new ItemStack(item), 9, 0);
+        panel.setTabs(Collections.singletonList(tab));
+        setPanelInt(panel, "visibleRows", 6);
+        Method rows = panelMethod("getDisplayRows", BackpackTab.class);
+        Method scrollable = panelMethod("hasVerticalScroll", BackpackTab.class);
+        assertEquals(6, rows.invoke(panel, tab));
+        assertEquals(false, scrollable.invoke(panel, tab));
+        java.util.ArrayList<WirelessItemEntry> entries = new java.util.ArrayList<>();
+        for (int i = 0; i < 100; i++) entries.add(new WirelessItemEntry(tagged(i, 1), 64));
+        tab.setWirelessEntries(entries);
+        assertEquals(true, scrollable.invoke(panel, tab));
+        panelMethod("scrollRows", BackpackTab.class, int.class).invoke(panel, tab, -120);
+        configurePanelSearch(panel);
+        java.lang.reflect.Field cache = BackpackOverlayPanel.class.getDeclaredField("filteredSlots");
+        cache.setAccessible(true);
+        ((Map<?, ?>) cache.get(panel)).clear();
+        assertEquals(6, rows.invoke(panel, tab));
+        assertEquals(false, scrollable.invoke(panel, tab));
+        assertEquals(0, panelMethod("getScrollRow", BackpackTab.class).invoke(panel, tab));
+    }
+
+    @Test
+    public void narrowAndZeroRowViewportsExcludeHiddenSlotsAndDragging() throws ReflectiveOperationException {
+        BackpackOverlayPanel panel = new BackpackOverlayPanel();
+        BackpackTab tab = new BackpackTab(2, 2, BackpackKind.FORESTRY, new ItemStack(item), 9, 125);
+        panel.setTabs(Collections.singletonList(tab));
+        setPanelInt(panel, "lastWidth", 180);
+        setPanelInt(panel, "visibleRows", 6);
+        int x = (int) panelMethod("getSlotGridX").invoke(panel);
+        int y = (int) panelMethod("getSlotGridY").invoke(panel);
+        assertNull(panel.getSlotClickAt(x + 8 * 18, y + 1));
+        assertEquals(
+            false,
+            panelMethod("isMouseOverSlotViewport", int.class, int.class).invoke(panel, x + 8 * 18, y + 1));
+        setPanelInt(panel, "visibleRows", 0);
+        assertEquals(0, panelMethod("getScrollbarThumbHeight").invoke(panel));
+        assertEquals(false, panelMethod("hasVerticalScroll", BackpackTab.class).invoke(panel, tab));
+        assertEquals(false, panelMethod("handleScrollbarPress", int.class, int.class).invoke(panel, x, y));
     }
 
     private static void setPanelInt(BackpackOverlayPanel panel, String name, int value)
