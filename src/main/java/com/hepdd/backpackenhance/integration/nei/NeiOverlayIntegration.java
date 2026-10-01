@@ -2,6 +2,7 @@ package com.hepdd.backpackenhance.integration.nei;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Predicate;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.inventory.GuiContainer;
@@ -42,6 +43,19 @@ public final class NeiOverlayIntegration implements INEIGuiHandler {
         }
     }
 
+    public static Predicate<ItemStack> searchFilter(String text) {
+        codechicken.nei.api.ItemFilter filter = codechicken.nei.SearchField.getFilter(text);
+        return filter::matches;
+    }
+
+    public static Predicate<ItemStack> inventorySearchFilter() {
+        if (!codechicken.nei.SearchField.searchInventories()) return null;
+        codechicken.nei.api.ItemFilter filter = LayoutManager.searchField.getFilter();
+        boolean emptySearch = codechicken.nei.NEIClientConfig.getSearchExpression()
+            .isEmpty();
+        return stack -> stack == null ? emptySearch : filter.matches(stack);
+    }
+
     public static boolean isTextInputFocused() {
         try {
             return isTextFieldFocused(LayoutManager.searchField) || isTextFieldFocused(LayoutManager.quantity)
@@ -53,6 +67,18 @@ public final class NeiOverlayIntegration implements INEIGuiHandler {
 
     private static boolean isTextFieldFocused(Widget widget) {
         return widget instanceof TextField && ((TextField) widget).focused();
+    }
+
+    public static void releaseInputFocus() {
+        Widget focused = LayoutManager.getInputFocused();
+        releaseTextField(focused);
+        releaseTextField(LayoutManager.searchField);
+        releaseTextField(LayoutManager.quantity);
+        LayoutManager.setInputFocused(null);
+    }
+
+    private static void releaseTextField(Widget widget) {
+        if (isTextFieldFocused(widget)) ((TextField) widget).setFocus(false);
     }
 
     @Override
@@ -140,7 +166,16 @@ public final class NeiOverlayIntegration implements INEIGuiHandler {
 
         @Override
         public boolean shouldShowTooltip(GuiContainer gui) {
-            return true;
+            BackpackOverlayPanel panel = OverlayController.getPanel();
+            if (!OverlayController.isActiveFor(gui) || panel == null
+                || panel.getActiveTabOrNull() == null
+                || !panel.getActiveTabOrNull()
+                    .isWireless())
+                return true;
+            int mouseX = org.lwjgl.input.Mouse.getX() * gui.width / Minecraft.getMinecraft().displayWidth;
+            int mouseY = gui.height - org.lwjgl.input.Mouse.getY() * gui.height / Minecraft.getMinecraft().displayHeight
+                - 1;
+            return panel.getStackAt(mouseX, mouseY) == null;
         }
     }
 }

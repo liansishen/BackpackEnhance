@@ -11,6 +11,8 @@ import com.hepdd.backpackenhance.net.packet.PacketOverlayForestryModeCycle;
 import com.hepdd.backpackenhance.net.packet.PacketOverlaySettings;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayState;
 import com.hepdd.backpackenhance.net.packet.PacketRequestOverlay;
+import com.hepdd.backpackenhance.net.packet.PacketWirelessAction;
+import com.hepdd.backpackenhance.net.packet.PacketWirelessState;
 
 import cpw.mods.fml.common.network.NetworkRegistry;
 import cpw.mods.fml.common.network.simpleimpl.SimpleNetworkWrapper;
@@ -38,5 +40,7 @@ public final class NetworkHandler {
             PacketOverlayForestryModeCycle.class,
             9,
             Side.SERVER);
+        INSTANCE.registerMessage(PacketWirelessAction.Handler.class, PacketWirelessAction.class, 10, Side.SERVER);
+        INSTANCE.registerMessage(PacketWirelessState.Handler.class, PacketWirelessState.class, 11, Side.CLIENT);
     }
 }

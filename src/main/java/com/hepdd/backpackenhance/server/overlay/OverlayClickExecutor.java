@@ -154,6 +154,38 @@ public class OverlayClickExecutor {
         return false;
     }
 
+    public ItemStack moveToOpenContainer(EntityPlayerMP player, ItemStack stack) {
+        if (player.openContainer instanceof ContainerPlayer) return insertIntoPlayerInventory(player, stack);
+        Slot borrowed = findEmptyPlayerContainerSlot(player, stack);
+        if (borrowed != null) {
+            borrowed.putStack(stack);
+            player.openContainer.slotClick(borrowed.slotNumber, 0, 1, player);
+            return null;
+        }
+        return insertIntoNonPlayerSlots(player, stack);
+    }
+
+    public int getOpenContainerCapacity(EntityPlayerMP player, ItemStack stack) {
+        int capacity = 0;
+        if (player.openContainer instanceof ContainerPlayer) {
+            for (ItemStack existing : player.inventory.mainInventory) {
+                if (existing == null) return stack.getMaxStackSize();
+                if (canMerge(existing, stack)) capacity += existing.getMaxStackSize() - existing.stackSize;
+            }
+        } else {
+            Slot borrowed = findEmptyPlayerContainerSlot(player, stack);
+            if (borrowed != null) return getSlotStackLimit(borrowed, stack);
+            for (Slot slot : collectNonPlayerInsertSlots(player)) {
+                if (!slot.isItemValid(stack)) continue;
+                ItemStack existing = slot.getStack();
+                int limit = getSlotStackLimit(slot, stack);
+                if (existing == null) capacity += limit;
+                else if (canMerge(existing, stack)) capacity += Math.max(0, limit - existing.stackSize);
+            }
+        }
+        return Math.min(capacity, stack.getMaxStackSize());
+    }
+
     /**
      * Insert into open-container slots that are not the player's inventory (machine/chest/etc.).
      * Skips phantom / shift-disabled slots and prefers lower ModularUI shift priorities.

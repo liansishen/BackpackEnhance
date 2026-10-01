@@ -1,6 +1,8 @@
 package com.hepdd.backpackenhance;
 
+import com.hepdd.backpackenhance.integration.WirelessOverlay;
 import com.hepdd.backpackenhance.net.NetworkHandler;
+import com.hepdd.backpackenhance.net.packet.PacketWirelessState;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
@@ -23,7 +25,11 @@ public class CommonProxy {
     }
 
     // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
-    public void postInit(FMLPostInitializationEvent event) {}
+    public void postInit(FMLPostInitializationEvent event) {
+        WirelessOverlay.init();
+    }
+
+    public void receiveWirelessState(PacketWirelessState packet) {}
 
     // register server commands in this event handler (Remove if not needed)
     public void serverStarting(FMLServerStartingEvent event) {}

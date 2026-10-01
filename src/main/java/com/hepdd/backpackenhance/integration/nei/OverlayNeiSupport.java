@@ -681,10 +681,11 @@ public final class OverlayNeiSupport {
         }
         BackpackTab active = OverlayController.getActiveOverlayTab();
         if (active != null) {
-            return active;
+            return active.isWireless() ? null : active;
         }
         List<BackpackTab> tabs = OverlayClientState.getTabs();
-        return tabs.isEmpty() ? null : tabs.get(0);
+        return tabs.isEmpty() || tabs.get(0)
+            .isWireless() ? null : tabs.get(0);
     }
 
     private static boolean isAutoCraftProcessing() {

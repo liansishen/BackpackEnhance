@@ -11,3 +11,6 @@ gui.backpackenhance.forestry_mode.locked=已锁定
 gui.backpackenhance.forestry_mode.receive=接收
 gui.backpackenhance.forestry_mode.resupply=再补给
 gui.backpackenhance.forestry_mode.resupply_disabled=服务器已禁用再补给
+gui.backpackenhance.search=搜索物品……
+gui.backpackenhance.loading=正在载入 ME 物品……
+gui.backpackenhance.stored=库存
