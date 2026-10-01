@@ -11,6 +11,7 @@ import net.minecraft.item.ItemStack;
 import com.hepdd.backpackenhance.integration.BackpackInventoryAccess;
 import com.hepdd.backpackenhance.integration.BackpackScanner;
 import com.hepdd.backpackenhance.integration.BackpackTab;
+import com.hepdd.backpackenhance.integration.WirelessOverlay;
 import com.hepdd.backpackenhance.net.NetworkHandler;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayState;
 
@@ -59,6 +60,9 @@ public class OverlayShiftInHandler {
         }
 
         Integer activeTabId = OverlaySessionTracker.getActiveTab(player);
+        if (activeTabId != null && WirelessOverlay.isWirelessTab(activeTabId.intValue())) {
+            return WirelessOverlay.backend != null && WirelessOverlay.backend.shiftInto(player, sourceSlot);
+        }
         List<BackpackTab> tabs = SCANNER.scan(player);
         if (tabs.isEmpty()) {
             return false;

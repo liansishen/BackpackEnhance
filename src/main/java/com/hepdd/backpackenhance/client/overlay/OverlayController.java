@@ -10,6 +10,7 @@ import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.gui.inventory.GuiContainerCreative;
 import net.minecraft.client.renderer.entity.RenderItem;
+import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -30,6 +31,7 @@ import com.hepdd.backpackenhance.integration.BackpackScanner;
 import com.hepdd.backpackenhance.integration.BackpackTab;
 import com.hepdd.backpackenhance.integration.BackpackTabColors;
 import com.hepdd.backpackenhance.integration.ForestryModeBridge;
+import com.hepdd.backpackenhance.integration.WirelessOverlay;
 import com.hepdd.backpackenhance.integration.nei.NeiOverlayIntegration;
 import com.hepdd.backpackenhance.integration.nei.OverlayNeiSupport;
 import com.hepdd.backpackenhance.net.NetworkHandler;
@@ -40,6 +42,7 @@ import com.hepdd.backpackenhance.net.packet.PacketOverlayDrag;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayForestryModeCycle;
 import com.hepdd.backpackenhance.net.packet.PacketOverlaySettings;
 import com.hepdd.backpackenhance.net.packet.PacketRequestOverlay;
+import com.hepdd.backpackenhance.net.packet.PacketWirelessAction;
 
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -83,6 +86,7 @@ public class OverlayController {
     private long lastHandledWheelEventNanos = Long.MIN_VALUE;
     /** Monotonic session id so a late PacketCloseOverlay cannot wipe a newer Request. */
     private int sessionId;
+    private int wirelessSessionId;
     /** Fingerprint of backpack items in the player inventory (layout / dye / identity). */
     private String backpackInventoryFingerprint = "";
     /**
@@ -90,6 +94,8 @@ public class OverlayController {
      * and reopening the machine mid-transferRecipe).
      */
     private int selectedTabId = -1;
+    private int sentActiveTab = Integer.MIN_VALUE;
+    private boolean sentMinimized;
 
     public OverlayController() {
         instance = this;
@@ -101,6 +107,7 @@ public class OverlayController {
         // Switching chest→machine / NEI recipe→machine only re-requests — do NOT clear tabs here.
         // Clearing mid-frame breaks NEI fill (displayGuiScreen → transferRecipe same tick).
         if (isEligibleGui(event.gui)) {
+            if (activeGui == null) wirelessSessionId++;
             // Save previous GUI's overlay position before loading the new one.
             if (activeGui != null && activeGui != event.gui && !tabs.isEmpty()) {
                 panel.savePosition(activeGui);
@@ -129,6 +136,8 @@ public class OverlayController {
             }
             OverlayNeiSupport.forceSettleIfNeeded();
             NetworkHandler.INSTANCE.sendToServer(new PacketCloseOverlay(sessionId));
+            sendWirelessControl(PacketWirelessAction.CLOSE);
+            OverlayClientState.clear();
         }
         activeGui = null;
         pendingScan = false;
@@ -155,6 +164,7 @@ public class OverlayController {
             return;
         }
 
+        OverlayClientState.tick();
         // When bookmark auto-craft finishes, settle borrowed tools + unused materials to overlay.
         OverlayNeiSupport.tickAutoCraftSettle();
 
@@ -167,7 +177,8 @@ public class OverlayController {
         if (pendingScan && activeGui != null) {
             pendingScan = false;
             tabs.clear();
-            tabs.addAll(scanner.scan(minecraft.thePlayer));
+            tabs.addAll(
+                OverlayClientState.hasState() ? OverlayClientState.getTabs() : scanner.scan(minecraft.thePlayer));
             panel.setTabs(tabs);
             backpackInventoryFingerprint = fingerprintBackpacks(minecraft.thePlayer);
             requestOverlayFromServer();
@@ -184,7 +195,7 @@ public class OverlayController {
 
         // Authoritative server snapshot (including empty = all backpacks removed).
         // Apply tabs + cursor in the same step so place/take never shows both at once.
-        if (activeGui != null && OverlayClientState.hasState()) {
+        if (activeGui != null && OverlayClientState.consumeDirty()) {
             List<BackpackTab> syncedTabs = OverlayClientState.getTabs();
             tabs.clear();
             tabs.addAll(syncedTabs);
@@ -208,6 +219,17 @@ public class OverlayController {
 
     private void rememberSelectedTabId() {
         int id = panel.getActiveTabId();
+        BackpackTab active = panel.getActiveTabOrNull();
+        if (active != null && active.isWireless()
+            && (id != selectedTabId || (sentMinimized && !Config.overlayMinimized))) {
+            active.wirelessLoading = true;
+        }
+        if (id != sentActiveTab || Config.overlayMinimized != sentMinimized) {
+            sentActiveTab = id;
+            sentMinimized = Config.overlayMinimized;
+            NetworkHandler.INSTANCE.sendToServer(new PacketOverlayActiveTab(id));
+            sendWirelessControl(PacketWirelessAction.SELECT);
+        }
         if (id >= 0) {
             selectedTabId = id;
         }
@@ -218,6 +240,9 @@ public class OverlayController {
             return;
         }
         sessionId++;
+        OverlayClientState.expectWirelessSession(wirelessSessionId);
+        sentActiveTab = Integer.MIN_VALUE;
+        sendWirelessControl(PacketWirelessAction.OPEN);
         NetworkHandler.INSTANCE.sendToServer(
             new PacketRequestOverlay(
                 activeGui.getClass()
@@ -226,6 +251,45 @@ public class OverlayController {
                     .getName(),
                 Config.overlayMinimized,
                 sessionId));
+    }
+
+    private void sendWirelessControl(int action) {
+        if (minecraft.thePlayer == null) return;
+        NetworkHandler.INSTANCE.sendToServer(
+            new PacketWirelessAction(
+                wirelessSessionId,
+                minecraft.thePlayer.openContainer.windowId,
+                panel.getActiveTabId(),
+                0,
+                action,
+                0,
+                Config.overlayMinimized,
+                null));
+    }
+
+    private void sendSlotAction(OverlaySlotClick click, int button, int mode) {
+        if (WirelessOverlay.isWirelessTab(click.tabId)) {
+            int action = mode == PacketOverlayClick.MODE_SHIFT ? PacketWirelessAction.SHIFT
+                : mode == PacketOverlayClick.MODE_HOTBAR ? PacketWirelessAction.HOTBAR
+                    : mode == PacketOverlayClick.MODE_DOUBLE ? PacketWirelessAction.COLLECT
+                        : PacketWirelessAction.CLICK;
+            sendWirelessClick(click, action, button);
+        } else {
+            NetworkHandler.INSTANCE.sendToServer(new PacketOverlayClick(click.tabId, click.slotIndex, button, mode));
+        }
+    }
+
+    private void sendWirelessClick(OverlaySlotClick click, int action, int value) {
+        NetworkHandler.INSTANCE.sendToServer(
+            new PacketWirelessAction(
+                wirelessSessionId,
+                minecraft.thePlayer.openContainer.windowId,
+                click.tabId,
+                click.generation,
+                action,
+                value,
+                Config.overlayMinimized,
+                click.template));
     }
 
     /**
@@ -303,9 +367,22 @@ public class OverlayController {
     }
 
     private boolean isEligibleGui(GuiScreen gui) {
-        return gui instanceof GuiContainer && !(gui instanceof GuiContainerCreative)
+        return gui instanceof GuiContainer
+            && (!(gui instanceof GuiContainerCreative)
+                || isCreativeInventoryTab(((GuiContainerCreative) gui).func_147056_g()))
             && !blacklist.isBlacklisted(gui)
             && scanner.hasSupportedModLoaded();
+    }
+
+    private static boolean isCreativeInventoryTab(int selectedTabIndex) {
+        return selectedTabIndex == CreativeTabs.tabInventory.getTabIndex();
+    }
+
+    public static void onCreativeTabChanged(GuiContainerCreative gui) {
+        if (instance != null && instance.minecraft.currentScreen == gui
+            && instance.isEligibleGui(gui) != (instance.activeGui == gui)) {
+            instance.onGuiOpen(new GuiOpenEvent(gui));
+        }
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
@@ -343,6 +420,15 @@ public class OverlayController {
         return instance.handleMouseWheel(gui, wheelDelta, eventNanos);
     }
 
+    public static boolean handleSearchMouseInput(GuiScreen gui, int mouseX, int mouseY, int button) {
+        if (instance == null || gui != instance.activeGui || instance.tabs.isEmpty()) return false;
+        if (!instance.panel.handleSearchMouse(gui, mouseX, mouseY, button)) return false;
+        if (button == 0) instance.leftMouseDown = true;
+        if (button == 1) instance.rightMouseDown = true;
+        instance.rememberSelectedTabId();
+        return true;
+    }
+
     private boolean handleMouseWheel(GuiScreen gui, int wheelDelta, long eventNanos) {
         if (eventNanos == lastHandledWheelEventNanos || gui != activeGui
             || minecraft.currentScreen != activeGui
@@ -365,28 +451,7 @@ public class OverlayController {
         int mouseY = scaled.getScaledHeight() - Mouse.getEventY() * scaled.getScaledHeight() / minecraft.displayHeight
             - 1;
 
-        // The scrollbar always owns the wheel, even while carrying an item.
-        if (panel.isMouseOverScrollbar(activeGui, mouseX, mouseY)) {
-            return consumeWheelEvent(eventNanos, panel.mouseScrolled(activeGui, mouseX, mouseY, wheelDelta));
-        }
-
-        OverlaySlotClick slotClick = panel.getSlotClickAt(mouseX, mouseY);
-        if (slotClick == null) {
-            return false;
-        }
-
-        ItemStack slotStack = panel.getStackAt(mouseX, mouseY);
-        if (slotStack == null) {
-            // Empty storage slots scroll the visible rows when this tab has a scrollbar.
-            return consumeWheelEvent(eventNanos, panel.mouseScrolled(activeGui, mouseX, mouseY, wheelDelta));
-        }
-        if (minecraft.thePlayer.inventory.getItemStack() == null) {
-            // Occupied storage slots use the existing shift-click-out path instead of scrolling.
-            NetworkHandler.INSTANCE.sendToServer(
-                new PacketOverlayClick(slotClick.tabId, slotClick.slotIndex, 0, PacketOverlayClick.MODE_SHIFT));
-            return consumeWheelEvent(eventNanos, true);
-        }
-        return false;
+        return consumeWheelEvent(eventNanos, panel.mouseScrolled(activeGui, mouseX, mouseY, wheelDelta));
     }
 
     private boolean consumeWheelEvent(long eventNanos, boolean consumed) {
@@ -402,6 +467,13 @@ public class OverlayController {
         int mouseY = scaled.getScaledHeight() - Mouse.getY() * scaled.getScaledHeight() / minecraft.displayHeight - 1;
         boolean nowDown = Mouse.isButtonDown(0);
         boolean rightNowDown = Mouse.isButtonDown(1);
+        if ((nowDown && !leftMouseDown) || (rightNowDown && !rightMouseDown)) {
+            if (panel.handleSearchMouse(gui, mouseX, mouseY, nowDown ? 0 : 1)) {
+                leftMouseDown = nowDown;
+                rightMouseDown = rightNowDown;
+                return;
+            }
+        }
 
         if (nowDown && !leftMouseDown) {
             OverlaySlotClick slotClick = panel.getSlotClickAt(mouseX, mouseY);
@@ -423,7 +495,7 @@ public class OverlayController {
             }
             int activeTabId = panel.consumePendingActiveTabId();
             if (activeTabId >= 0) {
-                selectedTabId = activeTabId;
+                sentActiveTab = Integer.MIN_VALUE;
                 NetworkHandler.INSTANCE.sendToServer(new PacketOverlayActiveTab(activeTabId));
             }
             BackpackOverlayPanel.ModeCycleRequest modeRequest = panel.consumePendingModeCycle();
@@ -505,7 +577,13 @@ public class OverlayController {
             }
         } else if (!rightNowDown && rightMouseDown) {
             if (pendingRightSlotClick != null) {
-                if (rightDragSlots.size() > 1 && minecraft.thePlayer.inventory.getItemStack() != null) {
+                if (WirelessOverlay.isWirelessTab(pendingRightSlotClick.tabId)) {
+                    if (rightDragSlots.size() > 1 && minecraft.thePlayer.inventory.getItemStack() != null) {
+                        sendWirelessClick(pendingRightSlotClick, PacketWirelessAction.DRAG, rightDragSlots.size());
+                    } else {
+                        sendSlotAction(pendingRightSlotClick, 1, PacketOverlayClick.MODE_NORMAL);
+                    }
+                } else if (rightDragSlots.size() > 1 && minecraft.thePlayer.inventory.getItemStack() != null) {
                     NetworkHandler.INSTANCE
                         .sendToServer(new PacketOverlayDrag(pendingRightSlotClick.tabId, rightDragSlots, 1));
                 } else {
@@ -556,6 +634,7 @@ public class OverlayController {
         tabs.clear();
         OverlayClientState.clear();
         NetworkHandler.INSTANCE.sendToServer(new PacketCloseOverlay(sessionId));
+        sendWirelessControl(PacketWirelessAction.CLOSE);
     }
 
     private void handleHotbarKeys(GuiScreen gui) {
@@ -575,8 +654,7 @@ public class OverlayController {
             int key = Keyboard.KEY_1 + i;
             boolean down = Keyboard.isKeyDown(key);
             if (down && !hotbarKeyDown[i] && slotClick != null) {
-                NetworkHandler.INSTANCE.sendToServer(
-                    new PacketOverlayClick(slotClick.tabId, slotClick.slotIndex, i, PacketOverlayClick.MODE_HOTBAR));
+                sendSlotAction(slotClick, i, PacketOverlayClick.MODE_HOTBAR);
             }
             hotbarKeyDown[i] = down;
         }
@@ -626,7 +704,14 @@ public class OverlayController {
     }
 
     public static boolean isTextInputFocused(GuiScreen gui) {
-        return GuiTextInputFocus.hasFocusedTextInput(gui) || NeiOverlayIntegration.isTextInputFocused();
+        return (instance != null && instance.panel.isSearchFocused()) || GuiTextInputFocus.hasFocusedTextInput(gui)
+            || NeiOverlayIntegration.isTextInputFocused();
+    }
+
+    public static boolean handleSearchKey(GuiScreen gui, char character, int key) {
+        return instance != null && instance.activeGui == gui
+            && !instance.tabs.isEmpty()
+            && instance.panel.keyTyped(character, key);
     }
 
     private void tryToggleMinimized(GuiScreen gui) {
@@ -855,6 +940,15 @@ public class OverlayController {
         if (pendingSlotClick == null) {
             return;
         }
+        if (WirelessOverlay.isWirelessTab(pendingSlotClick.tabId)) {
+            ItemStack cursor = minecraft.thePlayer.inventory.getItemStack();
+            if (pendingClickMode == PacketOverlayClick.MODE_NORMAL && dragSlots.size() > 1 && cursor != null) {
+                sendWirelessClick(pendingSlotClick, PacketWirelessAction.DRAG, cursor.stackSize);
+            } else {
+                sendSlotAction(pendingSlotClick, 0, pendingClickMode);
+            }
+            return;
+        }
 
         if (pendingClickMode == PacketOverlayClick.MODE_NORMAL && dragSlots.size() > 1
             && minecraft.thePlayer.inventory.getItemStack() != null) {
@@ -951,7 +1045,8 @@ public class OverlayController {
     }
 
     private static boolean isValidForClientPrediction(BackpackTab tab, ItemStack stack) {
-        return tab.kind != BackpackKind.FORESTRY || ForestryModeBridge.isItemValid(tab.stack, stack);
+        return !tab.isWireless()
+            && (tab.kind != BackpackKind.FORESTRY || ForestryModeBridge.isItemValid(tab.stack, stack));
     }
 
     private static boolean sameStackMerge(ItemStack a, ItemStack b) {

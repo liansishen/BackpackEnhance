@@ -6,7 +6,8 @@ public enum BackpackKind {
     BRADS("backpack", 9, 27, 0xFF7A4C2A),
     BRADS_WORKBENCH("backpack", 9, 27, 0xFF9A6A34),
     BRADS_ENDER("backpack", 9, 27, 0xFF6B3FA0),
-    FORESTRY("forestry", 5, 15, 0xFF967047);
+    FORESTRY("forestry", 5, 15, 0xFF967047),
+    AE2_WIRELESS("appliedenergistics2", 9, 0, 0xFF56B8C4);
 
     public final String modKey;
     public final int columns;

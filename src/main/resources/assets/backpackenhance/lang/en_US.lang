@@ -11,3 +11,6 @@ gui.backpackenhance.forestry_mode.locked=Locked
 gui.backpackenhance.forestry_mode.receive=Receive
 gui.backpackenhance.forestry_mode.resupply=Resupply
 gui.backpackenhance.forestry_mode.resupply_disabled=Resupply is disabled by the server
+gui.backpackenhance.search=Search items...
+gui.backpackenhance.loading=Loading ME items...
+gui.backpackenhance.stored=Stored

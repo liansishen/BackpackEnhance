@@ -3,12 +3,15 @@ package com.hepdd.backpackenhance.client.overlay;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.function.Predicate;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.RenderItem;
@@ -16,10 +19,14 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.StatCollector;
 
+import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
 import com.hepdd.backpackenhance.Config;
 import com.hepdd.backpackenhance.integration.BackpackTab;
+import com.hepdd.backpackenhance.integration.nei.NeiOverlayIntegration;
+
+import cpw.mods.fml.common.Loader;
 
 /**
  * Client-side overlay chrome: texture-atlas panel/slots/tabs ({@link OverlayGuiTextures}),
@@ -37,12 +44,14 @@ public class BackpackOverlayPanel extends Gui {
     private static final int PADDING = 7;
     /** Gap between tab strip and slot grid (half of previous full PADDING). */
     private static final int TAB_TO_SLOT_GAP = 3;
+    private static final int SEARCH_HEIGHT = 18;
     private static final int MINIMIZED_SIZE = 20;
     private static final int TAB_WIDTH = 26;
     private static final int TITLE_BTN = 12;
     /** Width of NEI-style prev/next tab arrows. */
     private static final int TAB_ARROW_W = 10;
     private static final int MAX_VISIBLE_ROWS = 6;
+    private static final int WIRELESS_VISIBLE_ROWS = 5;
     private static final int SCROLLBAR_GAP = 3;
     private static final int SCROLLBAR_WIDTH = 6;
     private static final int SCROLLBAR_MIN_THUMB_HEIGHT = 8;
@@ -58,6 +67,7 @@ public class BackpackOverlayPanel extends Gui {
     private final RenderItem renderItem = RenderItem.getInstance();
     private List<BackpackTab> tabs = new ArrayList<BackpackTab>();
     private int activeTabIndex;
+    private int preferredTabId = -1;
     /** 0-based page index; each page shows up to n visible tabs (n = capacity of the strip). */
     private int tabPage;
     private int lastX;
@@ -81,27 +91,159 @@ public class BackpackOverlayPanel extends Gui {
      * a real size (after initGui). Re-apply when the key changes (new GUI or size).
      */
     private String appliedPositionKey;
+    private GuiTextField searchField;
+    private String searchText = "";
+    private long lastSearchClickTime = -1;
+    private int searchX, searchY, searchWidth;
+    private Predicate<ItemStack> searchFilter = stack -> true;
+    private final Map<Integer, FilteredSlots> filteredSlots = new HashMap<Integer, FilteredSlots>();
+
+    public boolean isSearchFocused() {
+        return !Config.overlayMinimized && !tabs.isEmpty() && searchField != null && searchField.isFocused();
+    }
+
+    public boolean handleSearchMouse(GuiScreen gui, int mouseX, int mouseY, int button) {
+        if (tabs.isEmpty() || Config.overlayMinimized) return false;
+        updateLayout(gui);
+        boolean inside = isMouseInside(mouseX, mouseY, searchX, searchY, searchWidth, 14);
+        searchField.mouseClicked(mouseX, mouseY, button);
+        if (inside) {
+            if (Loader.isModLoaded("NotEnoughItems")) NeiOverlayIntegration.releaseInputFocus();
+            handleSearchClick(button, Minecraft.getSystemTime());
+        } else {
+            lastSearchClickTime = -1;
+        }
+        return inside;
+    }
+
+    private void handleSearchClick(int button, long time) {
+        if (button == 1) {
+            searchField.setText("");
+            setSearchText("");
+            lastSearchClickTime = -1;
+        } else if (button == 0) {
+            if (lastSearchClickTime >= 0 && time - lastSearchClickTime < 250) {
+                selectNextMatchingTab();
+                lastSearchClickTime = -1;
+            } else {
+                lastSearchClickTime = time;
+            }
+        }
+    }
+
+    private boolean selectNextMatchingTab() {
+        if (searchText.trim()
+            .isEmpty()) return false;
+        for (int step = 1; step <= tabs.size(); step++) {
+            int index = (activeTabIndex + step) % tabs.size();
+            BackpackTab tab = tabs.get(index);
+            if (tab.wirelessLoading) continue;
+            for (int slot = 0; slot < tab.storageSlots; slot++) {
+                ItemStack stack = tab.getSlotStack(slot);
+                if (stack == null || !searchFilter.test(stack)) continue;
+                activeTabIndex = index;
+                preferredTabId = pendingActiveTabId = tab.tabId;
+                int width = getTabStripAvailableWidth();
+                tabPage = index / getPageSize(width, needsTabPaging(width));
+                scrollRowsByPlayerSlot.put(tab.playerSlot, tab.isWireless() ? 0 : slot / getDisplayColumns());
+                clearDragPreview();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean keyTyped(char character, int key) {
+        if (!isSearchFocused()) return false;
+        if (key == Keyboard.KEY_ESCAPE || key == Keyboard.KEY_RETURN) {
+            searchField.setFocused(false);
+        } else {
+            searchField.textboxKeyTyped(character, key);
+            setSearchText(searchField.getText());
+        }
+        return true;
+    }
+
+    private void setSearchText(String text) {
+        if (searchText.equals(text)) return;
+        searchText = text;
+        lastSearchClickTime = -1;
+        String query = text.toLowerCase(Locale.ROOT);
+        searchFilter = Loader.isModLoaded("NotEnoughItems") ? NeiOverlayIntegration.searchFilter(text)
+            : stack -> stack.getDisplayName()
+                .toLowerCase(Locale.ROOT)
+                .contains(query);
+        filteredSlots.clear();
+        scrollRowsByPlayerSlot.clear();
+    }
+
+    private void updateSearchField() {
+        int x = lastX + PADDING;
+        int y = lastY + TITLE_HEIGHT + TAB_HEIGHT + 2;
+        int width = Math.max(1, lastWidth - PADDING * 2);
+        if (searchField == null || x != searchX || y != searchY || width != searchWidth) {
+            boolean focused = searchField != null && searchField.isFocused();
+            searchX = x;
+            searchY = y;
+            searchWidth = width;
+            searchField = new GuiTextField(minecraft.fontRenderer, x, y, width, 14);
+            searchField.setMaxStringLength(128);
+            searchField.setText(searchText);
+            searchField.setFocused(focused);
+        }
+    }
+
+    private List<Integer> getVisibleSlots(BackpackTab tab) {
+        FilteredSlots cached = filteredSlots.get(tab.tabId);
+        if (cached != null && cached.tab == tab
+            && cached.revision == tab.revision
+            && cached.columns == getDisplayColumns()) return cached.slots;
+        List<Integer> slots = new ArrayList<Integer>();
+        for (int i = 0; i < tab.storageSlots; i++) {
+            ItemStack stack = tab.getSlotStack(i);
+            if (!tab.isWireless() || searchText.isEmpty() || (stack != null && searchFilter.test(stack))) slots.add(i);
+        }
+        if (tab.isWireless()) {
+            int columns = getDisplayColumns();
+            int paddedSize = Math.max(columns * WIRELESS_VISIBLE_ROWS, (slots.size() / columns + 1) * columns);
+            int padding = paddedSize - slots.size();
+            for (int i = 0; i < padding; i++) slots.add(-slots.size() - 1);
+        }
+        filteredSlots.put(tab.tabId, new FilteredSlots(tab, slots));
+        return slots;
+    }
+
+    private static final class FilteredSlots {
+
+        private final BackpackTab tab;
+        private final int revision;
+        private final int columns;
+        private final List<Integer> slots;
+
+        private FilteredSlots(BackpackTab tab, List<Integer> slots) {
+            this.tab = tab;
+            this.revision = tab.revision;
+            this.columns = getDisplayColumns();
+            this.slots = slots;
+        }
+    }
 
     public void setTabs(List<BackpackTab> tabs) {
-        int preferredSlot = -1;
-        if (activeTabIndex >= 0 && activeTabIndex < this.tabs.size()) {
-            preferredSlot = this.tabs.get(activeTabIndex).playerSlot;
-        }
+        if (preferredTabId < 0) preferredTabId = getActiveTabId();
         this.tabs = new ArrayList<BackpackTab>(tabs);
-        if (preferredSlot >= 0) {
-            for (int i = 0; i < this.tabs.size(); i++) {
-                if (this.tabs.get(i).playerSlot == preferredSlot) {
-                    activeTabIndex = i;
-                    preferredSlot = -2;
-                    break;
-                }
+        filteredSlots.keySet()
+            .retainAll(
+                tabs.stream()
+                    .map(tab -> tab.tabId)
+                    .collect(java.util.stream.Collectors.toSet()));
+        for (int i = 0; i < this.tabs.size(); i++) {
+            if (this.tabs.get(i).tabId == preferredTabId) {
+                activeTabIndex = i;
+                clampTabPage();
+                return;
             }
         }
-        if (preferredSlot != -2) {
-            if (activeTabIndex >= this.tabs.size()) {
-                activeTabIndex = Math.max(0, this.tabs.size() - 1);
-            }
-        }
+        activeTabIndex = Math.max(0, Math.min(activeTabIndex, this.tabs.size() - 1));
         clampTabPage();
     }
 
@@ -146,6 +288,14 @@ public class BackpackOverlayPanel extends Gui {
         OverlayGuiTextures.drawBodyFill(lastX + 2, lastY + TITLE_HEIGHT, lastWidth - 4, TAB_HEIGHT);
         renderTabs(lastX + PADDING, lastY + TITLE_HEIGHT + 2, lastWidth - PADDING * 2, mouseX, mouseY);
         renderSlotGrid(activeTab, getSlotGridX(), getSlotGridY(), mouseX, mouseY);
+        searchField.drawTextBox();
+        if (searchText.isEmpty() && !searchField.isFocused()) {
+            minecraft.fontRenderer.drawString(
+                tr(activeTab.wirelessLoading ? "gui.backpackenhance.loading" : "gui.backpackenhance.search"),
+                searchX + 4,
+                searchY + 3,
+                0x808080);
+        }
         if (hasVerticalScroll(activeTab)) {
             renderScrollbar(activeTab, mouseX, mouseY);
         }
@@ -165,6 +315,7 @@ public class BackpackOverlayPanel extends Gui {
         RenderHelper.disableStandardItemLighting();
         renderTabTooltip(mouseX, mouseY);
         renderModeTooltip(mouseX, mouseY);
+        renderStoredAmountTooltip(mouseX, mouseY);
         GL11.glPopMatrix();
         OverlayGlState.restoreGuiItemLighting();
     }
@@ -178,6 +329,7 @@ public class BackpackOverlayPanel extends Gui {
         if (Config.overlayMinimized) {
             return isMouseInside(mouseX, mouseY, lastX, lastY, MINIMIZED_SIZE, MINIMIZED_SIZE);
         }
+        if (handleSearchMouse(gui, mouseX, mouseY, button)) return true;
 
         // Minimize (top-left)
         if (isMouseInside(mouseX, mouseY, lastX + 3, lastY + 2, TITLE_BTN, TITLE_BTN)) {
@@ -203,6 +355,7 @@ public class BackpackOverlayPanel extends Gui {
             activeTabIndex = clickedTab;
             // Keep the current page; do not force-scroll to the active tab (arrows must work freely).
             pendingActiveTabId = getActiveTab().tabId;
+            preferredTabId = pendingActiveTabId;
             return true;
         }
 
@@ -239,9 +392,16 @@ public class BackpackOverlayPanel extends Gui {
             return null;
         }
 
-        int slotIndex = (getScrollRow(activeTab) + visibleRow) * columns + column;
-        if (slotIndex >= 0 && slotIndex < activeTab.storageSlots) {
-            return new OverlaySlotClick(activeTab.tabId, slotIndex);
+        if (activeTab.wirelessLoading) return null;
+        int visibleIndex = (getScrollRow(activeTab) + visibleRow) * columns + column;
+        List<Integer> slots = getVisibleSlots(activeTab);
+        if (visibleIndex >= 0 && visibleIndex < slots.size()) {
+            int slotIndex = slots.get(visibleIndex);
+            return new OverlaySlotClick(
+                activeTab.tabId,
+                slotIndex,
+                activeTab.wirelessGeneration,
+                activeTab.isWireless() ? activeTab.getSlotStack(slotIndex) : null);
         }
         return null;
     }
@@ -354,6 +514,7 @@ public class BackpackOverlayPanel extends Gui {
     public void applyGui(GuiScreen gui) {
         appliedPositionKey = null;
         scrollbarDragging = false;
+        if (searchField != null) searchField.setFocused(false);
         Config.clearWorkingOffset();
     }
 
@@ -469,7 +630,7 @@ public class BackpackOverlayPanel extends Gui {
 
     private int getDisplayRows(BackpackTab tab) {
         int columns = getDisplayColumns();
-        return Math.max(1, (tab.storageSlots + columns - 1) / columns);
+        return Math.max(1, (getVisibleSlots(tab).size() + columns - 1) / columns);
     }
 
     private int getExpandedWidth(int columns) {
@@ -484,7 +645,7 @@ public class BackpackOverlayPanel extends Gui {
 
     private boolean needsScrollbarGutter() {
         for (BackpackTab tab : tabs) {
-            if (getDisplayRows(tab) > MAX_VISIBLE_ROWS) {
+            if (tab.isWireless() || tab.storageSlots > getDisplayColumns() * MAX_VISIBLE_ROWS) {
                 return true;
             }
         }
@@ -496,16 +657,21 @@ public class BackpackOverlayPanel extends Gui {
             return 0;
         }
         int heightLimit = Config.overlayHeight > 0 ? Math.min(Config.overlayHeight, gui.height) : gui.height;
-        int chromeHeight = TITLE_HEIGHT + TAB_HEIGHT + TAB_TO_SLOT_GAP + PADDING;
+        int chromeHeight = TITLE_HEIGHT + TAB_HEIGHT + SEARCH_HEIGHT + TAB_TO_SLOT_GAP + PADDING;
         return Math.max(0, (heightLimit - chromeHeight) / SLOT_SIZE);
     }
 
     private void updateLayout(GuiScreen gui) {
         BackpackTab activeTab = getActiveTab();
         int columns = getDisplayColumns();
+        int rowLimit = activeTab != null && activeTab.isWireless() ? WIRELESS_VISIBLE_ROWS : MAX_VISIBLE_ROWS;
         int rows = activeTab == null ? 1 : getDisplayRows(activeTab);
-        visibleRows = Math.min(rows, Math.min(MAX_VISIBLE_ROWS, getScreenVisibleRows(gui)));
-        int autoHeight = TITLE_HEIGHT + TAB_HEIGHT + TAB_TO_SLOT_GAP + PADDING + visibleRows * SLOT_SIZE;
+        visibleRows = Math.min(rows, Math.min(rowLimit, getScreenVisibleRows(gui)));
+        int autoHeight = TITLE_HEIGHT + TAB_HEIGHT
+            + SEARCH_HEIGHT
+            + TAB_TO_SLOT_GAP
+            + PADDING
+            + visibleRows * SLOT_SIZE;
         lastWidth = getExpandedWidth(columns);
         lastHeight = Config.overlayHeight > 0 ? Math.min(Config.overlayHeight, autoHeight) : autoHeight;
         if (Config.overlayMinimized) {
@@ -514,11 +680,16 @@ public class BackpackOverlayPanel extends Gui {
         } else {
             lastWidth = Math.min(lastWidth, Math.max(1, gui.width));
             lastHeight = Math.min(lastHeight, Math.max(1, gui.height));
-            int availableRows = Math
-                .max(0, (lastHeight - TITLE_HEIGHT - TAB_HEIGHT - TAB_TO_SLOT_GAP - PADDING) / SLOT_SIZE);
-            visibleRows = Math.min(rows, Math.min(MAX_VISIBLE_ROWS, availableRows));
+            int availableRows = Math.max(
+                0,
+                (lastHeight - TITLE_HEIGHT - TAB_HEIGHT - SEARCH_HEIGHT - TAB_TO_SLOT_GAP - PADDING) / SLOT_SIZE);
+            visibleRows = Math.min(rows, Math.min(rowLimit, availableRows));
             if (visibleRows > 0) {
-                lastHeight = TITLE_HEIGHT + TAB_HEIGHT + TAB_TO_SLOT_GAP + PADDING + visibleRows * SLOT_SIZE;
+                lastHeight = TITLE_HEIGHT + TAB_HEIGHT
+                    + SEARCH_HEIGHT
+                    + TAB_TO_SLOT_GAP
+                    + PADDING
+                    + visibleRows * SLOT_SIZE;
             }
         }
         clampAllScrollRows();
@@ -541,6 +712,7 @@ public class BackpackOverlayPanel extends Gui {
         }
         lastX = clamp(desiredX, 0, Math.max(0, gui.width - lastWidth));
         lastY = clamp(desiredY, 0, Math.max(0, gui.height - lastHeight));
+        updateSearchField();
     }
 
     private void renderMinimized(int x, int y) {
@@ -735,9 +907,13 @@ public class BackpackOverlayPanel extends Gui {
         int columns = getDisplayColumns();
         int firstRow = getScrollRow(tab);
         int firstSlot = firstRow * columns;
-        int lastSlot = Math.min(tab.storageSlots, (firstRow + visibleRows) * columns);
+        List<Integer> slots = getVisibleSlots(tab);
+        int lastSlot = Math.min(slots.size(), (firstRow + visibleRows) * columns);
         int renderRight = hasVerticalScroll(tab) ? getScrollbarX() : lastX + lastWidth - 2;
         Map<Integer, Integer> previewAmounts = computePreviewAmounts(tab);
+        Predicate<ItemStack> neiFilter = Loader.isModLoaded("NotEnoughItems")
+            ? NeiOverlayIntegration.inventorySearchFilter()
+            : null;
 
         OverlayGuiTextures.bind();
         for (int slot = firstSlot; slot < lastSlot; slot++) {
@@ -750,8 +926,9 @@ public class BackpackOverlayPanel extends Gui {
             int slotY = y + visibleRow * SLOT_SIZE;
             OverlayGuiTextures.drawSlot(slotX, slotY);
 
-            ItemStack existing = tab.getSlotStack(slot);
-            Integer previewAmt = previewAmounts.get(Integer.valueOf(slot));
+            int sourceSlot = slots.get(slot);
+            ItemStack existing = tab.getSlotStack(sourceSlot);
+            Integer previewAmt = previewAmounts.get(Integer.valueOf(sourceSlot));
             if (previewAmt != null && previewAmt.intValue() > 0 && previewCursor != null) {
                 // Show distributed ghost item (like vanilla drag-place), even on empty slots.
                 ItemStack ghost = previewCursor.copy();
@@ -764,12 +941,21 @@ public class BackpackOverlayPanel extends Gui {
                     renderGhostItem(ghost, slotX + 1, slotY + 1);
                 }
             } else {
-                renderItem(existing, slotX + 1, slotY + 1);
+                renderItem(
+                    existing,
+                    slotX + 1,
+                    slotY + 1,
+                    tab.isWireless() ? formatAmount(tab.getStoredAmount(sourceSlot)) : null);
             }
 
             // Vanilla-style white hover highlight over the 16x16 item area.
             if (mouseX >= slotX && mouseY >= slotY && mouseX < slotX + 18 && mouseY < slotY + 18) {
                 drawSlotHover(slotX + 1, slotY + 1);
+            }
+            boolean localMismatch = !tab.isWireless() && !searchText.isEmpty()
+                && (existing == null || !searchFilter.test(existing));
+            if (localMismatch || (neiFilter != null && !neiFilter.test(existing))) {
+                drawSearchShade(slotX + 1, slotY + 1);
             }
             OverlayGuiTextures.bind();
         }
@@ -840,7 +1026,7 @@ public class BackpackOverlayPanel extends Gui {
     }
 
     private int getSlotGridY() {
-        return lastY + TITLE_HEIGHT + TAB_HEIGHT + TAB_TO_SLOT_GAP;
+        return lastY + TITLE_HEIGHT + TAB_HEIGHT + SEARCH_HEIGHT + TAB_TO_SLOT_GAP;
     }
 
     private int getSlotViewportHeight() {
@@ -951,6 +1137,17 @@ public class BackpackOverlayPanel extends Gui {
         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
     }
 
+    private void drawSearchShade(int x, int y) {
+        boolean depth = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        GL11.glDisable(GL11.GL_DEPTH_TEST);
+        GL11.glPushMatrix();
+        GL11.glTranslatef(0.0F, 0.0F, 150.0F);
+        drawRect(x, y, x + 16, y + 16, 0x80000000);
+        GL11.glPopMatrix();
+        if (depth) GL11.glEnable(GL11.GL_DEPTH_TEST);
+        GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
     /**
      * Mirrors {@code OverlayClickExecutor.dragDistribute} so preview counts match the server.
      */
@@ -1019,6 +1216,10 @@ public class BackpackOverlayPanel extends Gui {
     }
 
     private void renderItem(ItemStack stack, int x, int y) {
+        renderItem(stack, x, y, null);
+    }
+
+    private void renderItem(ItemStack stack, int x, int y, String amount) {
         if (stack == null) {
             return;
         }
@@ -1027,7 +1228,21 @@ public class BackpackOverlayPanel extends Gui {
         OverlayGlState.beginItemIcon();
         renderItem.zLevel = 100.0F;
         renderItem.renderItemAndEffectIntoGUI(minecraft.fontRenderer, minecraft.getTextureManager(), stack, x, y);
-        renderItem.renderItemOverlayIntoGUI(minecraft.fontRenderer, minecraft.getTextureManager(), stack, x, y);
+        renderItem.renderItemOverlayIntoGUI(
+            minecraft.fontRenderer,
+            minecraft.getTextureManager(),
+            stack,
+            x,
+            y,
+            amount == null ? null : "");
+        if (amount != null) {
+            RenderHelper.disableStandardItemLighting();
+            GL11.glPushMatrix();
+            GL11.glTranslatef(x + 16.0F, y + 16.0F - minecraft.fontRenderer.FONT_HEIGHT * 0.5F, 200.0F);
+            GL11.glScalef(0.5F, 0.5F, 1.0F);
+            minecraft.fontRenderer.drawStringWithShadow(amount, -minecraft.fontRenderer.getStringWidth(amount), 0, -1);
+            GL11.glPopMatrix();
+        }
         renderItem.zLevel = 0.0F;
         OverlayGlState.endItemIcon();
         GL11.glPopMatrix();
@@ -1054,6 +1269,32 @@ public class BackpackOverlayPanel extends Gui {
         GL11.glPopMatrix();
         GL11.glDisable(GL11.GL_LIGHTING);
         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
+    private static String formatAmount(long amount) {
+        if (amount < 1000) return Long.toString(amount);
+        String[] suffixes = { "k", "M", "G", "T", "P", "E" };
+        double value = amount;
+        int index = -1;
+        while (value >= 1000 && index < suffixes.length - 1) {
+            value /= 1000;
+            index++;
+        }
+        return String.format(Locale.ROOT, value < 10 ? "%.1f%s" : "%.0f%s", value, suffixes[index]);
+    }
+
+    private void renderStoredAmountTooltip(int mouseX, int mouseY) {
+        BackpackTab tab = getActiveTab();
+        if (tab == null || !tab.isWireless()) return;
+        if (minecraft.thePlayer.inventory.getItemStack() != null) return;
+        OverlaySlotClick click = getSlotClickAt(mouseX, mouseY);
+        if (click == null || click.template == null) return;
+        List<String> lines = new ArrayList<String>(
+            click.template.getTooltip(minecraft.thePlayer, minecraft.gameSettings.advancedItemTooltips));
+        lines.add(
+            tr("gui.backpackenhance.stored") + ": "
+                + String.format(Locale.ROOT, "%,d", tab.getStoredAmount(click.slotIndex)));
+        drawSimpleTooltip(lines, mouseX, mouseY);
     }
 
     private void renderTabTooltip(int mouseX, int mouseY) {
@@ -1130,6 +1371,10 @@ public class BackpackOverlayPanel extends Gui {
         int x = mouseX + 8;
         int y = mouseY + 8;
         int height = lines.size() * 10 + 4;
+        if (minecraft.currentScreen != null) {
+            x = clamp(x, 4, Math.max(4, minecraft.currentScreen.width - width - 4));
+            y = clamp(y, 4, Math.max(4, minecraft.currentScreen.height - height - 4));
+        }
         drawTooltip(lines, x, y, width, height);
         for (int i = 0; i < lines.size(); i++) {
             minecraft.fontRenderer.drawStringWithShadow(lines.get(i), x, y + i * 10, 0xFFFFFF);

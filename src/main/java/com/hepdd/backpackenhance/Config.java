@@ -104,7 +104,7 @@ public class Config {
             "supportedMods",
             "overlay",
             overlaySupportedMods,
-            "Optional supported mod filter. Empty means all. Values: adventurebackpack, backpack, forestry.");
+            "Optional supported mod filter. Empty means all. Values: adventurebackpack, backpack, forestry, appliedenergistics2.");
 
         Property positionsProp = configuration.get(
             "overlay",

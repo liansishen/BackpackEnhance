@@ -96,6 +96,7 @@ public class BackpackScanner {
     public boolean hasSupportedModLoaded() {
         return Loader.isModLoaded("adventurebackpack") || Loader.isModLoaded("Backpack")
             || Loader.isModLoaded("backpack")
-            || Loader.isModLoaded("Forestry");
+            || Loader.isModLoaded("Forestry")
+            || Loader.isModLoaded("appliedenergistics2");
     }
 }
