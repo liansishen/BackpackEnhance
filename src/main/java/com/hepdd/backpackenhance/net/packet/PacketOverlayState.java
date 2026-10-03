@@ -19,12 +19,18 @@ public class PacketOverlayState implements IMessage {
 
     private List<OverlayTabSnapshot> tabs = new ArrayList<OverlayTabSnapshot>();
     private ItemStack cursorStack;
+    private boolean updateCursor;
 
     public PacketOverlayState() {}
+
+    public PacketOverlayState(List<OverlayTabSnapshot> tabs) {
+        this.tabs = tabs;
+    }
 
     public PacketOverlayState(List<OverlayTabSnapshot> tabs, ItemStack cursorStack) {
         this.tabs = tabs;
         this.cursorStack = cursorStack == null ? null : cursorStack.copy();
+        this.updateCursor = true;
     }
 
     @Override
@@ -63,7 +69,8 @@ public class PacketOverlayState implements IMessage {
                     modeCycleAvailable,
                     resupplyEnabled));
         }
-        cursorStack = ByteBufUtils.readItemStack(buf);
+        updateCursor = buf.readBoolean();
+        cursorStack = updateCursor ? ByteBufUtils.readItemStack(buf) : null;
     }
 
     @Override
@@ -87,7 +94,8 @@ public class PacketOverlayState implements IMessage {
                 ByteBufUtils.writeItemStack(buf, slot.stack);
             }
         }
-        ByteBufUtils.writeItemStack(buf, cursorStack);
+        buf.writeBoolean(updateCursor);
+        if (updateCursor) ByteBufUtils.writeItemStack(buf, cursorStack);
     }
 
     public static class Handler implements IMessageHandler<PacketOverlayState, IMessage> {
@@ -96,8 +104,8 @@ public class PacketOverlayState implements IMessage {
         public IMessage onMessage(PacketOverlayState message, MessageContext ctx) {
             try {
                 Class<?> stateClass = Class.forName("com.hepdd.backpackenhance.client.overlay.OverlayClientState");
-                stateClass.getMethod("setState", List.class, ItemStack.class)
-                    .invoke(null, message.tabs, message.cursorStack);
+                stateClass.getMethod("setState", List.class, ItemStack.class, boolean.class)
+                    .invoke(null, message.tabs, message.cursorStack, message.updateCursor);
             } catch (ReflectiveOperationException ignored) {
                 // Client-only state is unavailable on dedicated servers; this handler is only registered client-side.
             }

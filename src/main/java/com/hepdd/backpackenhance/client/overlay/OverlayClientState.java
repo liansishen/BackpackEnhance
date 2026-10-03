@@ -8,6 +8,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.item.ItemStack;
 
 import com.hepdd.backpackenhance.integration.BackpackKind;
@@ -109,11 +110,11 @@ public final class OverlayClientState {
 
     private OverlayClientState() {}
 
-    public static void setState(List<OverlayTabSnapshot> snapshots, ItemStack cursorStack) {
-        incoming.add(() -> applyState(snapshots, cursorStack));
+    public static void setState(List<OverlayTabSnapshot> snapshots, ItemStack cursorStack, boolean updateCursor) {
+        incoming.add(() -> applyState(snapshots, cursorStack, updateCursor));
     }
 
-    private static void applyState(List<OverlayTabSnapshot> snapshots, ItemStack cursorStack) {
+    private static void applyState(List<OverlayTabSnapshot> snapshots, ItemStack cursorStack, boolean updateCursor) {
         List<BackpackTab> converted = new ArrayList<BackpackTab>(snapshots.size());
         for (OverlayTabSnapshot snapshot : snapshots) {
             BackpackTab tab = new BackpackTab(
@@ -138,24 +139,21 @@ public final class OverlayClientState {
         }
         syncedTabs = converted;
         synchronizeBackpackModes(converted);
-        // Hold cursor until tabs are applied on the client tick (same apply step).
-        pendingCursor = cursorStack == null ? null : cursorStack.copy();
-        hasPendingCursor = true;
+        if (updateCursor) {
+            // Hold cursor until tabs are applied on the client tick (same apply step).
+            pendingCursor = cursorStack == null ? null : cursorStack.copy();
+            hasPendingCursor = true;
+        }
         hasState = true;
         dirty = true;
     }
 
     private static void synchronizeBackpackModes(List<BackpackTab> tabs) {
-        Minecraft mc = Minecraft.getMinecraft();
-        if (mc.thePlayer == null || mc.thePlayer.inventory == null) {
-            return;
-        }
         for (BackpackTab tab : tabs) {
-            if (!tab.modeCycleAvailable || tab.stack == null
-                || tab.playerSlot < 0
-                || tab.playerSlot >= mc.thePlayer.inventory.mainInventory.length) {
-                continue;
-            }
+            if (!tab.modeCycleAvailable || tab.stack == null) continue;
+            Minecraft mc = Minecraft.getMinecraft();
+            if (mc.thePlayer == null || mc.thePlayer.inventory == null) return;
+            if (tab.playerSlot < 0 || tab.playerSlot >= mc.thePlayer.inventory.mainInventory.length) continue;
             ItemStack local = mc.thePlayer.inventory.mainInventory[tab.playerSlot];
             if (local != null && local.getItem() == tab.stack.getItem()) {
                 local.setItemDamage(tab.stack.getItemDamage());
@@ -170,11 +168,16 @@ public final class OverlayClientState {
         if (!hasPendingCursor) {
             return;
         }
-        hasPendingCursor = false;
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer != null) {
-            mc.thePlayer.inventory.setItemStack(pendingCursor == null ? null : pendingCursor.copy());
+            applyPendingCursor(mc.thePlayer.inventory);
         }
+    }
+
+    static void applyPendingCursor(InventoryPlayer inventory) {
+        if (!hasPendingCursor) return;
+        hasPendingCursor = false;
+        inventory.setItemStack(pendingCursor == null ? null : pendingCursor.copy());
         pendingCursor = null;
     }
 

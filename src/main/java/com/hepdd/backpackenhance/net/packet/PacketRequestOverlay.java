@@ -61,7 +61,8 @@ public class PacketRequestOverlay implements IMessage {
             List<OverlayTabSnapshot> snapshots = snapshotFactory.build(player, tabs);
             int activeTab = snapshots.isEmpty() ? -1 : snapshots.get(0).tabId;
             OverlaySessionTracker.activate(player, activeTab, message.sessionId, message.minimized);
-            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots, player.inventory.getItemStack()), player);
+            // Creative inventory clicks keep the carried stack client-side.
+            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots), player);
             return null;
         }
     }

@@ -47,6 +47,7 @@ dependencies {
     devOnlyNonPublishable("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-1073-GTNH:dev")
     testImplementation("junit:junit:4.13.2")
     testRuntimeOnly("org.lwjgl.lwjgl:lwjgl_util:2.9.4-nightly-20150209")
+    testRuntimeOnly("net.xonich.mc:NoHotbarNeeded:0.0.6:dev")
     runtimeOnlyNonPublishable("com.github.GTNewHorizons:Angelica:2.2.19:dev")
     runtimeOnlyNonPublishable("com.github.GTNewHorizons:waila:1.19.34:dev")
     runtimeOnlyNonPublishable("com.github.GTNewHorizons:WAILAPlugins:0.7.2:dev")
