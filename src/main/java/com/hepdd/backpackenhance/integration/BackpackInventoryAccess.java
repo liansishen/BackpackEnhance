@@ -67,6 +67,11 @@ public final class BackpackInventoryAccess {
         if (kind == BackpackKind.ADVENTURE) {
             return SlotBackpack.isValidItem(stack);
         }
+        if (isBradsStorage(kind)) {
+            // The inventory accepts everything; nesting and blacklist rules live in the native slot.
+            return new de.eydamos.backpack.inventory.slot.SlotBackpack(inventory, slot, 0, 0).isItemValid(stack)
+                && inventory.isItemValidForSlot(slot, stack);
+        }
         return inventory.isItemValidForSlot(slot, stack);
     }
 
