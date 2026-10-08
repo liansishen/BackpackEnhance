@@ -28,12 +28,24 @@ public final class OverlayClientState {
     private static List<BackpackTab> syncedTabs = new ArrayList<BackpackTab>();
     private static ItemStack pendingCursor;
     private static boolean hasPendingCursor;
+    private static int cursorRevision;
     private static boolean hasState;
     private static boolean dirty;
     private static int wirelessSession = -1;
     private static final Queue<Runnable> incoming = new ConcurrentLinkedQueue<Runnable>();
     private static final Map<Integer, BackpackTab> wirelessTabs = new LinkedHashMap<Integer, BackpackTab>();
     private static final Map<Integer, Map<WirelessItemEntry, WirelessItemEntry>> wirelessItems = new LinkedHashMap<Integer, Map<WirelessItemEntry, WirelessItemEntry>>();
+
+    public static int beginCursorAction() {
+        invalidateCursor();
+        return cursorRevision;
+    }
+
+    public static void invalidateCursor() {
+        cursorRevision++;
+        pendingCursor = null;
+        hasPendingCursor = false;
+    }
 
     public static void expectWirelessSession(int session) {
         wirelessSession = session;
@@ -111,10 +123,16 @@ public final class OverlayClientState {
     private OverlayClientState() {}
 
     public static void setState(List<OverlayTabSnapshot> snapshots, ItemStack cursorStack, boolean updateCursor) {
-        incoming.add(() -> applyState(snapshots, cursorStack, updateCursor));
+        setState(snapshots, cursorStack, updateCursor, -1);
     }
 
-    private static void applyState(List<OverlayTabSnapshot> snapshots, ItemStack cursorStack, boolean updateCursor) {
+    public static void setState(List<OverlayTabSnapshot> snapshots, ItemStack cursorStack, boolean updateCursor,
+        int revision) {
+        incoming.add(() -> applyState(snapshots, cursorStack, updateCursor, revision));
+    }
+
+    private static void applyState(List<OverlayTabSnapshot> snapshots, ItemStack cursorStack, boolean updateCursor,
+        int revision) {
         List<BackpackTab> converted = new ArrayList<BackpackTab>(snapshots.size());
         for (OverlayTabSnapshot snapshot : snapshots) {
             BackpackTab tab = new BackpackTab(
@@ -139,7 +157,7 @@ public final class OverlayClientState {
         }
         syncedTabs = converted;
         synchronizeBackpackModes(converted);
-        if (updateCursor) {
+        if (updateCursor && (revision == -1 || revision == cursorRevision)) {
             // Hold cursor until tabs are applied on the client tick (same apply step).
             pendingCursor = cursorStack == null ? null : cursorStack.copy();
             hasPendingCursor = true;
@@ -192,9 +210,8 @@ public final class OverlayClientState {
     }
 
     public static void clear() {
+        invalidateCursor();
         syncedTabs = new ArrayList<BackpackTab>();
-        pendingCursor = null;
-        hasPendingCursor = false;
         hasState = false;
         incoming.clear();
         wirelessTabs.clear();

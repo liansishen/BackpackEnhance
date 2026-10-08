@@ -143,6 +143,71 @@ public class OverlayCursorSynchronizationTest {
         assertSame(pickedUp, inventory.getItemStack());
     }
 
+    @Test
+    public void delayedActionDoesNotClearLaterInventoryPickup() {
+        InventoryPlayer inventory = new InventoryPlayer(null);
+        int revision = OverlayClientState.beginCursorAction();
+        ItemStack pickedUp = backpack();
+        inventory.setItemStack(pickedUp);
+        OverlayClientState.invalidateCursor();
+
+        receive(new PacketOverlayState(Collections.emptyList(), null, revision));
+        OverlayClientState.applyPendingCursor(inventory);
+        assertSame(pickedUp, inventory.getItemStack());
+    }
+
+    @Test
+    public void delayedActionDoesNotRestoreCursorAfterPuttingItInPlayerInventory() {
+        InventoryPlayer inventory = new InventoryPlayer(null);
+        ItemStack taken = backpack();
+        int revision = OverlayClientState.beginCursorAction();
+        inventory.setInventorySlotContents(9, taken);
+        OverlayClientState.invalidateCursor();
+
+        receive(new PacketOverlayState(Collections.emptyList(), taken, revision));
+        OverlayClientState.applyPendingCursor(inventory);
+        assertNull(inventory.getItemStack());
+        assertSame(taken, inventory.getStackInSlot(9));
+    }
+
+    @Test
+    public void latestActionCorrectsCursorWhileEarlierReplyIsIgnored() {
+        InventoryPlayer inventory = new InventoryPlayer(null);
+        int earlier = OverlayClientState.beginCursorAction();
+        int latest = OverlayClientState.beginCursorAction();
+        ItemStack remaining = backpack();
+        remaining.stackSize = 3;
+
+        receive(new PacketOverlayState(Collections.emptyList(), remaining, latest));
+        receive(new PacketOverlayState(Collections.emptyList(), null, earlier));
+        OverlayClientState.applyPendingCursor(inventory);
+        assertTrue(ItemStack.areItemStacksEqual(remaining, inventory.getItemStack()));
+    }
+
+    @Test
+    public void inventoryClickInvalidatesCursorAlreadyQueuedForApplication() {
+        InventoryPlayer inventory = new InventoryPlayer(null);
+        int revision = OverlayClientState.beginCursorAction();
+        receive(new PacketOverlayState(Collections.emptyList(), null, revision));
+        ItemStack pickedUp = backpack();
+        inventory.setItemStack(pickedUp);
+        OverlayClientState.invalidateCursor();
+
+        OverlayClientState.applyPendingCursor(inventory);
+        assertSame(pickedUp, inventory.getItemStack());
+    }
+
+    @Test
+    public void closingOverlayInvalidatesLateCursorReply() {
+        InventoryPlayer inventory = new InventoryPlayer(null);
+        int revision = OverlayClientState.beginCursorAction();
+        OverlayClientState.clear();
+
+        receive(new PacketOverlayState(Collections.emptyList(), backpack(), revision));
+        OverlayClientState.applyPendingCursor(inventory);
+        assertNull(inventory.getItemStack());
+    }
+
     private static ItemStack backpack() {
         ItemStack stack = new ItemStack(item);
         NBTTagCompound tag = new NBTTagCompound();

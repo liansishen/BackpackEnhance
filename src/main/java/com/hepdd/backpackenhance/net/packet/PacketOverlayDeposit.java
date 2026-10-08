@@ -62,7 +62,7 @@ public class PacketOverlayDeposit implements IMessage {
             List<BackpackTab> tabs = scanner.scan(player);
             clickExecutor.depositFromPlayer(player, tabs, message.tabId, message.template, message.amount);
             List<OverlayTabSnapshot> snapshots = snapshotFactory.build(player, tabs);
-            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots, player.inventory.getItemStack()), player);
+            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots), player);
             return null;
         }
     }

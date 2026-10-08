@@ -82,7 +82,7 @@ public class PacketOverlayExtract implements IMessage {
                     message.containerSlot);
             }
             List<OverlayTabSnapshot> snapshots = snapshotFactory.build(player, tabs);
-            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots, player.inventory.getItemStack()), player);
+            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots), player);
             return null;
         }
     }

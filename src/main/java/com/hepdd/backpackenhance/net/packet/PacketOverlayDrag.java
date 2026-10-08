@@ -22,6 +22,7 @@ public class PacketOverlayDrag implements IMessage {
     private int tabId;
     private int button;
     private List<Integer> slots = new ArrayList<Integer>();
+    private int cursorRevision = -1;
 
     public PacketOverlayDrag() {}
 
@@ -35,6 +36,11 @@ public class PacketOverlayDrag implements IMessage {
         this.slots = new ArrayList<Integer>(slots);
     }
 
+    public PacketOverlayDrag(int tabId, List<Integer> slots, int button, int cursorRevision) {
+        this(tabId, slots, button);
+        this.cursorRevision = cursorRevision;
+    }
+
     @Override
     public void fromBytes(ByteBuf buf) {
         tabId = buf.readInt();
@@ -44,6 +50,7 @@ public class PacketOverlayDrag implements IMessage {
         for (int i = 0; i < size; i++) {
             slots.add(buf.readInt());
         }
+        cursorRevision = buf.readInt();
     }
 
     @Override
@@ -54,6 +61,7 @@ public class PacketOverlayDrag implements IMessage {
         for (Integer slot : slots) {
             buf.writeInt(slot.intValue());
         }
+        buf.writeInt(cursorRevision);
     }
 
     public static class Handler implements IMessageHandler<PacketOverlayDrag, IMessage> {
@@ -68,7 +76,9 @@ public class PacketOverlayDrag implements IMessage {
             List<BackpackTab> tabs = scanner.scan(player);
             clickExecutor.dragDistribute(player, tabs, message.tabId, message.slots, message.button);
             List<OverlayTabSnapshot> snapshots = snapshotFactory.build(player, tabs);
-            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots, player.inventory.getItemStack()), player);
+            NetworkHandler.INSTANCE.sendTo(
+                new PacketOverlayState(snapshots, player.inventory.getItemStack(), message.cursorRevision),
+                player);
             return null;
         }
     }

@@ -27,6 +27,7 @@ public class PacketOverlayClick implements IMessage {
     private int slotIndex;
     private int button;
     private int mode;
+    private int cursorRevision = -1;
 
     public PacketOverlayClick() {}
 
@@ -37,12 +38,18 @@ public class PacketOverlayClick implements IMessage {
         this.mode = mode;
     }
 
+    public PacketOverlayClick(int tabId, int slotIndex, int button, int mode, int cursorRevision) {
+        this(tabId, slotIndex, button, mode);
+        this.cursorRevision = cursorRevision;
+    }
+
     @Override
     public void fromBytes(ByteBuf buf) {
         tabId = buf.readInt();
         slotIndex = buf.readInt();
         button = buf.readInt();
         mode = buf.readInt();
+        cursorRevision = buf.readInt();
     }
 
     @Override
@@ -51,6 +58,7 @@ public class PacketOverlayClick implements IMessage {
         buf.writeInt(slotIndex);
         buf.writeInt(button);
         buf.writeInt(mode);
+        buf.writeInt(cursorRevision);
     }
 
     public static class Handler implements IMessageHandler<PacketOverlayClick, IMessage> {
@@ -75,7 +83,9 @@ public class PacketOverlayClick implements IMessage {
                 clickExecutor.rightClick(player, tabs, message.tabId, message.slotIndex);
             }
             List<OverlayTabSnapshot> snapshots = snapshotFactory.build(player, tabs);
-            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots, player.inventory.getItemStack()), player);
+            NetworkHandler.INSTANCE.sendTo(
+                new PacketOverlayState(snapshots, player.inventory.getItemStack(), message.cursorRevision),
+                player);
             return null;
         }
     }

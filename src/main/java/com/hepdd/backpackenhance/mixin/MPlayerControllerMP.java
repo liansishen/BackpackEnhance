@@ -15,6 +15,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import com.hepdd.backpackenhance.client.overlay.OverlayClientState;
 import com.hepdd.backpackenhance.client.overlay.OverlayController;
 import com.hepdd.backpackenhance.server.overlay.OverlaySlotUtil;
 
@@ -41,6 +42,7 @@ public abstract class MPlayerControllerMP {
     @Inject(method = "windowClick", at = @At("HEAD"), cancellable = true)
     private void backpackenhance$suppressShiftPredict(int windowId, int slotId, int mouseButton, int mode,
         EntityPlayer player, CallbackInfoReturnable<ItemStack> cir) {
+        OverlayClientState.invalidateCursor();
         // mode 1 = shift
         if (mode != 1 || slotId < 0 || player == null || player.openContainer == null) {
             return;
