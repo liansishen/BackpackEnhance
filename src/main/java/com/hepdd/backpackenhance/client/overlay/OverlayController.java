@@ -36,6 +36,7 @@ import com.hepdd.backpackenhance.integration.nei.NeiOverlayIntegration;
 import com.hepdd.backpackenhance.integration.nei.OverlayNeiSupport;
 import com.hepdd.backpackenhance.net.NetworkHandler;
 import com.hepdd.backpackenhance.net.packet.PacketCloseOverlay;
+import com.hepdd.backpackenhance.net.packet.PacketCreativeCursor;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayActiveTab;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayClick;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayDrag;
@@ -275,7 +276,13 @@ public class OverlayController {
                         : PacketWirelessAction.CLICK;
             sendWirelessClick(click, action, button);
         } else {
-            NetworkHandler.INSTANCE.sendToServer(new PacketOverlayClick(click.tabId, click.slotIndex, button, mode));
+            NetworkHandler.INSTANCE.sendToServer(
+                new PacketOverlayClick(
+                    click.tabId,
+                    click.slotIndex,
+                    button,
+                    mode,
+                    OverlayClientState.beginCursorAction()));
         }
     }
 
@@ -376,6 +383,13 @@ public class OverlayController {
 
     private static boolean isCreativeInventoryTab(int selectedTabIndex) {
         return selectedTabIndex == CreativeTabs.tabInventory.getTabIndex();
+    }
+
+    public static void synchronizeCreativeCursor() {
+        Minecraft mc = Minecraft.getMinecraft();
+        if (mc.thePlayer == null) return;
+        OverlayClientState.invalidateCursor();
+        NetworkHandler.INSTANCE.sendToServer(new PacketCreativeCursor(mc.thePlayer.inventory.getItemStack()));
     }
 
     public static void onCreativeTabChanged(GuiContainerCreative gui) {
@@ -584,16 +598,22 @@ public class OverlayController {
                         sendSlotAction(pendingRightSlotClick, 1, PacketOverlayClick.MODE_NORMAL);
                     }
                 } else if (rightDragSlots.size() > 1 && minecraft.thePlayer.inventory.getItemStack() != null) {
-                    NetworkHandler.INSTANCE
-                        .sendToServer(new PacketOverlayDrag(pendingRightSlotClick.tabId, rightDragSlots, 1));
+                    NetworkHandler.INSTANCE.sendToServer(
+                        new PacketOverlayDrag(
+                            pendingRightSlotClick.tabId,
+                            rightDragSlots,
+                            1,
+                            OverlayClientState.beginCursorAction()));
                 } else {
+                    int revision = OverlayClientState.beginCursorAction();
                     applyLocalRightClickPrediction(pendingRightSlotClick.tabId, pendingRightSlotClick.slotIndex);
                     NetworkHandler.INSTANCE.sendToServer(
                         new PacketOverlayClick(
                             pendingRightSlotClick.tabId,
                             pendingRightSlotClick.slotIndex,
                             1,
-                            PacketOverlayClick.MODE_NORMAL));
+                            PacketOverlayClick.MODE_NORMAL,
+                            revision));
                 }
             }
             pendingRightSlotClick = null;
@@ -950,9 +970,10 @@ public class OverlayController {
             return;
         }
 
+        int revision = OverlayClientState.beginCursorAction();
         if (pendingClickMode == PacketOverlayClick.MODE_NORMAL && dragSlots.size() > 1
             && minecraft.thePlayer.inventory.getItemStack() != null) {
-            NetworkHandler.INSTANCE.sendToServer(new PacketOverlayDrag(pendingSlotClick.tabId, dragSlots, 0));
+            NetworkHandler.INSTANCE.sendToServer(new PacketOverlayDrag(pendingSlotClick.tabId, dragSlots, 0, revision));
         } else {
             // Predict place/take locally so slot + cursor update together (no one-frame flash).
             if (pendingClickMode == PacketOverlayClick.MODE_NORMAL
@@ -960,7 +981,12 @@ public class OverlayController {
                 applyLocalLeftClickPrediction(pendingSlotClick.tabId, pendingSlotClick.slotIndex, pendingClickMode);
             }
             NetworkHandler.INSTANCE.sendToServer(
-                new PacketOverlayClick(pendingSlotClick.tabId, pendingSlotClick.slotIndex, 0, pendingClickMode));
+                new PacketOverlayClick(
+                    pendingSlotClick.tabId,
+                    pendingSlotClick.slotIndex,
+                    0,
+                    pendingClickMode,
+                    revision));
         }
     }
 

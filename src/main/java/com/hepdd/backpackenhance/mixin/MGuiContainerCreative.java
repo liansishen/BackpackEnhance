@@ -2,6 +2,7 @@ package com.hepdd.backpackenhance.mixin;
 
 import net.minecraft.client.gui.inventory.GuiContainerCreative;
 import net.minecraft.creativetab.CreativeTabs;
+import net.minecraft.inventory.Slot;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -12,6 +13,17 @@ import com.hepdd.backpackenhance.client.overlay.OverlayController;
 
 @Mixin(GuiContainerCreative.class)
 public abstract class MGuiContainerCreative {
+
+    @Inject(method = "initGui", at = @At("RETURN"))
+    private void backpackenhance$initializeCursor(CallbackInfo ci) {
+        OverlayController.synchronizeCreativeCursor();
+    }
+
+    @Inject(method = "handleMouseClick", at = @At("RETURN"))
+    private void backpackenhance$synchronizeCursor(Slot slot, int slotId, int button, int mode, CallbackInfo ci) {
+        // Vanilla creative clicks send slot contents without the carried stack.
+        OverlayController.synchronizeCreativeCursor();
+    }
 
     @Inject(method = "setCurrentCreativeTab", at = @At("RETURN"))
     private void backpackenhance$creativeTabChanged(CreativeTabs tab, CallbackInfo ci) {

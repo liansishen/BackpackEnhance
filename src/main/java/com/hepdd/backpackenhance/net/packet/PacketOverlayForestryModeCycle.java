@@ -90,7 +90,7 @@ public class PacketOverlayForestryModeCycle implements IMessage {
 
             tabs = scanner.scan(player);
             List<OverlayTabSnapshot> snapshots = snapshotFactory.build(player, tabs);
-            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots, player.inventory.getItemStack()), player);
+            NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots), player);
             return null;
         }
 

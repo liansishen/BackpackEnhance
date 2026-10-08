@@ -2,6 +2,7 @@ package com.hepdd.backpackenhance.net;
 
 import com.hepdd.backpackenhance.BackpackEnhance;
 import com.hepdd.backpackenhance.net.packet.PacketCloseOverlay;
+import com.hepdd.backpackenhance.net.packet.PacketCreativeCursor;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayActiveTab;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayClick;
 import com.hepdd.backpackenhance.net.packet.PacketOverlayDeposit;
@@ -42,5 +43,6 @@ public final class NetworkHandler {
             Side.SERVER);
         INSTANCE.registerMessage(PacketWirelessAction.Handler.class, PacketWirelessAction.class, 10, Side.SERVER);
         INSTANCE.registerMessage(PacketWirelessState.Handler.class, PacketWirelessState.class, 11, Side.CLIENT);
+        INSTANCE.registerMessage(PacketCreativeCursor.Handler.class, PacketCreativeCursor.class, 12, Side.SERVER);
     }
 }

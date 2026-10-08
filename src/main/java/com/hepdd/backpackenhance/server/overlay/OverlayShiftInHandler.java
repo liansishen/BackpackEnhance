@@ -141,7 +141,7 @@ public class OverlayShiftInHandler {
 
     private static void syncOverlay(EntityPlayerMP player, List<BackpackTab> tabs) {
         List<OverlayTabSnapshot> snapshots = SNAPSHOT_FACTORY.build(player, tabs);
-        NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots, player.inventory.getItemStack()), player);
+        NetworkHandler.INSTANCE.sendTo(new PacketOverlayState(snapshots), player);
     }
 
     private static BackpackTab findTab(List<BackpackTab> tabs, int tabId) {
