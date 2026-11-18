@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Consumer;
 
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.inventory.Slot;
@@ -105,13 +106,21 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
             session.windowMismatchTicks = 0;
             if (ticks % 10 == 0) scan(session);
             for (Connection connection : session.connections.values()) {
-                boolean active = connection.visible && connection.tabId == session.activeTab && !session.minimized;
+                boolean active = isConnectionActive(
+                    connection.sync.visible,
+                    connection.tabId,
+                    session.activeTab,
+                    session.minimized);
                 if (!active) {
                     connection.unlisten();
                     continue;
                 }
-                if (!connection.listening && connection.availableForOverlay()) connection.listen();
-                if (ticks % 2 == 0 && connection.listening) connection.flush();
+                stepActiveConnection(
+                    ticks,
+                    connection.availableForOverlay(),
+                    connection.sync,
+                    connection::listen,
+                    connection::flush);
                 if (ticks % 10 == 0 && connection.valid() && !connection.nativeContainerUsesTerminal()) {
                     double drain = AEConfig.instance.wireless_getDrainRate(connection.host.getRange()) * 10;
                     connection.host.extractAEPower(drain, Actionable.MODULATE, PowerMultiplier.CONFIG);
@@ -158,7 +167,10 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
                 for (Connection connection : session.connections.values()) {
                     if (connection.availableForOverlay()) {
                         connection.metadata();
-                        if (connection.listening) connection.fullUpdate = true;
+                        if (connection.sync.listening) {
+                            connection.sync.fullUpdate = true;
+                            connection.sync.loading = true;
+                        }
                     }
                 }
             }
@@ -184,7 +196,7 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
             acknowledge(session, message.tabId, message.generation);
             return;
         }
-        if (!connection.listening || connection.fullUpdate || connection.loading) {
+        if (!connection.sync.listening || connection.sync.fullUpdate || connection.sync.loading) {
             acknowledge(session, message.tabId, message.generation);
             return;
         }
@@ -283,7 +295,7 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
             ItemStack terminal = session.player.inventory.mainInventory[slot];
             if (existing != null && existing.terminal == terminal && existing.valid()) {
                 if (existing.nativeContainerUsesNetwork()) invalidate(existing);
-                else if (!existing.visible) existing.metadata();
+                else if (!existing.sync.visible) existing.metadata();
                 continue;
             }
             if (existing != null) {
@@ -330,8 +342,8 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
 
     private void invalidate(Connection connection) {
         connection.unlisten();
-        if (!connection.visible) return;
-        connection.visible = false;
+        if (!connection.sync.visible) return;
+        connection.sync.visible = false;
         PacketWirelessState packet = new PacketWirelessState(
             connection.session.id,
             connection.tabId,
@@ -339,6 +351,107 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
             null);
         packet.removed = true;
         NetworkHandler.INSTANCE.sendTo(packet, connection.session.player);
+    }
+
+    static boolean isConnectionActive(boolean visible, int connectionTabId, int activeTabId, boolean minimized) {
+        return visible && connectionTabId == activeTabId && !minimized;
+    }
+
+    static boolean shouldFlushOnTick(int tickCount, boolean fullUpdate, boolean loading) {
+        return fullUpdate || loading || tickCount % 2 == 0;
+    }
+
+    static void stepConnection(int tickCount, boolean active, boolean available, SyncState sync, Runnable onListen,
+        Runnable onUnlisten, Runnable onFlush) {
+        if (!active) {
+            onUnlisten.run();
+            return;
+        }
+        stepActiveConnection(tickCount, available, sync, onListen, onFlush);
+    }
+
+    private static void stepActiveConnection(int tickCount, boolean available, SyncState sync, Runnable onListen,
+        Runnable onFlush) {
+        if (!sync.listening && available) {
+            onListen.run();
+        }
+        if (sync.listening && shouldFlushOnTick(tickCount, sync.fullUpdate, sync.loading)) {
+            onFlush.run();
+        }
+    }
+
+    static final class SyncState {
+
+        private final Map<WirelessItemEntry, IAEItemStack> changes = new LinkedHashMap<WirelessItemEntry, IAEItemStack>();
+        private final Queue<WirelessItemEntry> pending = new ArrayDeque<WirelessItemEntry>();
+        boolean listening;
+        boolean fullUpdate;
+        boolean resetNext;
+        boolean visible;
+        boolean loading;
+
+        void startListening() {
+            listening = true;
+            fullUpdate = true;
+            resetNext = false;
+            loading = true;
+        }
+
+        void stopListening() {
+            listening = false;
+            pending.clear();
+            changes.clear();
+        }
+
+        void postChange(Iterable<IAEItemStack> changed) {
+            for (IAEItemStack item : changed) changes.put(new WirelessItemEntry(item.getItemStack(), 0), item.copy());
+        }
+
+        void onListUpdate() {
+            fullUpdate = true;
+        }
+
+        void flush(int sessionId, int tabId, int generation, IMEMonitor<IAEItemStack> monitor,
+            Consumer<PacketWirelessState> sender) {
+            if (fullUpdate) {
+                pending.clear();
+                changes.clear();
+                for (IAEItemStack item : monitor.getStorageList()) {
+                    if (item.getStackSize() > 0)
+                        pending.add(new WirelessItemEntry(item.getItemStack(), item.getStackSize()));
+                }
+                fullUpdate = false;
+                resetNext = true;
+                loading = true;
+            } else if (pending.isEmpty() && !changes.isEmpty()) {
+                IItemList<IAEItemStack> storage = monitor.getStorageList();
+                for (IAEItemStack changed : changes.values()) {
+                    IAEItemStack current = storage.findPrecise(changed);
+                    pending.add(
+                        new WirelessItemEntry(changed.getItemStack(), current == null ? 0 : current.getStackSize()));
+                }
+                changes.clear();
+            }
+            if (pending.isEmpty() && !resetNext) return;
+            PacketWirelessState packet = new PacketWirelessState(sessionId, tabId, generation, null);
+            packet.reset = resetNext;
+            resetNext = false;
+            ByteBuf sizing = Unpooled.buffer();
+            try {
+                while (!pending.isEmpty() && packet.entries.size() < 256) {
+                    int before = sizing.writerIndex();
+                    PacketWirelessState.writeEntry(sizing, pending.peek());
+                    if (sizing.writerIndex() > 24000 && !packet.entries.isEmpty()) break;
+                    packet.entries.add(pending.remove());
+                    if (sizing.writerIndex() - before > 24000) break;
+                }
+            } finally {
+                sizing.release();
+            }
+            packet.complete = pending.isEmpty();
+            if (packet.complete) loading = false;
+            sender.accept(packet);
+        }
     }
 
     private final class Session {
@@ -375,13 +488,7 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
         private final WirelessTerminalGuiObject host;
         private final PlayerSource source;
         private final IMEMonitor<IAEItemStack> monitor;
-        private final Map<WirelessItemEntry, IAEItemStack> changes = new LinkedHashMap<WirelessItemEntry, IAEItemStack>();
-        private final Queue<WirelessItemEntry> pending = new ArrayDeque<WirelessItemEntry>();
-        private boolean listening;
-        private boolean fullUpdate;
-        private boolean resetNext;
-        private boolean visible;
-        private boolean loading;
+        private final SyncState sync = new SyncState();
 
         private Connection(Session session, int slot, ItemStack terminal, IWirelessTermHandler handler, String key) {
             this.session = session;
@@ -487,23 +594,19 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
         }
 
         private void metadata() {
-            visible = true;
+            sync.visible = true;
             NetworkHandler.INSTANCE
                 .sendTo(new PacketWirelessState(session.id, tabId, generation, terminal), session.player);
         }
 
         private void listen() {
             monitor.addListener(this, this);
-            listening = true;
-            fullUpdate = true;
-            loading = true;
+            sync.startListening();
         }
 
         private void unlisten() {
-            if (listening) monitor.removeListener(this);
-            listening = false;
-            pending.clear();
-            changes.clear();
+            if (sync.listening) monitor.removeListener(this);
+            sync.stopListening();
         }
 
         private void flush() {
@@ -511,60 +614,28 @@ public final class WirelessOverlayService implements WirelessOverlay.Backend {
                 invalidate(this);
                 return;
             }
-            if (fullUpdate) {
-                pending.clear();
-                changes.clear();
-                for (IAEItemStack item : monitor.getStorageList()) {
-                    if (item.getStackSize() > 0)
-                        pending.add(new WirelessItemEntry(item.getItemStack(), item.getStackSize()));
-                }
-                fullUpdate = false;
-                resetNext = true;
-                loading = true;
-            } else if (pending.isEmpty() && !changes.isEmpty()) {
-                IItemList<IAEItemStack> storage = monitor.getStorageList();
-                for (IAEItemStack changed : changes.values()) {
-                    IAEItemStack current = storage.findPrecise(changed);
-                    pending.add(
-                        new WirelessItemEntry(changed.getItemStack(), current == null ? 0 : current.getStackSize()));
-                }
-                changes.clear();
-            }
-            if (pending.isEmpty() && !resetNext) return;
-            PacketWirelessState packet = new PacketWirelessState(session.id, tabId, generation, null);
-            packet.reset = resetNext;
-            resetNext = false;
-            ByteBuf sizing = Unpooled.buffer();
-            try {
-                while (!pending.isEmpty() && packet.entries.size() < 256) {
-                    int before = sizing.writerIndex();
-                    PacketWirelessState.writeEntry(sizing, pending.peek());
-                    if (sizing.writerIndex() > 24000 && !packet.entries.isEmpty()) break;
-                    packet.entries.add(pending.remove());
-                    if (sizing.writerIndex() - before > 24000) break;
-                }
-            } finally {
-                sizing.release();
-            }
-            packet.complete = pending.isEmpty();
-            if (packet.complete) loading = false;
-            NetworkHandler.INSTANCE.sendTo(packet, session.player);
+            sync.flush(
+                session.id,
+                tabId,
+                generation,
+                monitor,
+                packet -> NetworkHandler.INSTANCE.sendTo(packet, session.player));
         }
 
         @Override
         public boolean isValid(Object token) {
-            return listening && token == this;
+            return sync.listening && token == this;
         }
 
         @Override
         public void postChange(IBaseMonitor<IAEItemStack> inventory, Iterable<IAEItemStack> changed,
             BaseActionSource action) {
-            for (IAEItemStack item : changed) changes.put(new WirelessItemEntry(item.getItemStack(), 0), item.copy());
+            sync.postChange(changed);
         }
 
         @Override
         public void onListUpdate() {
-            fullUpdate = true;
+            sync.onListUpdate();
         }
     }
 }

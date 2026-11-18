@@ -610,6 +610,10 @@ public class BackpackOverlayPanel extends Gui {
         return tab == null ? -1 : tab.tabId;
     }
 
+    public int getPreferredTabId() {
+        return preferredTabId;
+    }
+
     public BackpackTab getActiveTabOrNull() {
         return getActiveTab();
     }

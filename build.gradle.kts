@@ -5,6 +5,7 @@ plugins {
 
 tasks.withType<Test>().configureEach {
     useJUnit()
+    inputs.dir("resourcepacks/BackpackEnhance-Default")
     inputs.dir("resourcepacks/Modernity-BackpackEnhance")
 }
 

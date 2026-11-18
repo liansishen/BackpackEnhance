@@ -56,6 +56,7 @@ public final class OverlayTheme implements IResourceManagerReloadListener {
         } catch (IOException e) {
             BackpackEnhance.LOG.warn("Unable to load overlay colors from {}", COLORS, e);
         }
+        OverlayGuiTextures.preload();
     }
 
     static EnumMap<Color, Integer> defaults() {

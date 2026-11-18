@@ -11,6 +11,8 @@ import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.gui.inventory.GuiContainerCreative;
 import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.creativetab.CreativeTabs;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.inventory.Container;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -48,8 +50,11 @@ import com.hepdd.backpackenhance.net.packet.PacketWirelessAction;
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
+import cpw.mods.fml.common.network.simpleimpl.IMessage;
 
 public class OverlayController {
+
+    private static final int WIRELESS_OPEN_WAIT_TICKS = 10;
 
     private static OverlayController instance;
 
@@ -96,7 +101,11 @@ public class OverlayController {
      */
     private int selectedTabId = -1;
     private int sentActiveTab = Integer.MIN_VALUE;
-    private boolean sentMinimized;
+    private int lastSentWirelessTabId = Integer.MIN_VALUE;
+    private boolean lastSentWirelessMinimized;
+    private int pendingPreferredWirelessTabId = -1;
+    private int pendingPreferredWirelessTicks;
+    private int lastRequestedWindowId = Integer.MIN_VALUE;
 
     public OverlayController() {
         instance = this;
@@ -127,6 +136,9 @@ public class OverlayController {
             lastHandledWheelEventNanos = Long.MIN_VALUE;
             activeGui = event.gui;
             panel.applyGui(event.gui);
+            pendingPreferredWirelessTabId = -1;
+            pendingPreferredWirelessTicks = 0;
+            lastRequestedWindowId = Integer.MIN_VALUE;
             pendingScan = true;
             return;
         }
@@ -156,54 +168,80 @@ public class OverlayController {
         rightDragSlots.clear();
         tabs.clear();
         selectedTabId = -1;
+        sentActiveTab = Integer.MIN_VALUE;
+        lastSentWirelessTabId = Integer.MIN_VALUE;
+        pendingPreferredWirelessTabId = -1;
+        pendingPreferredWirelessTicks = 0;
+        lastRequestedWindowId = Integer.MIN_VALUE;
         lastHandledWheelEventNanos = Long.MIN_VALUE;
     }
 
     @SubscribeEvent
+    public void onInitGuiPost(GuiScreenEvent.InitGuiEvent.Post event) {
+        if (event == null || !hasClientPlayer() || !pendingScan || activeGui == null) {
+            return;
+        }
+        if (event.gui == activeGui && currentScreen() == activeGui
+            && isContainerWindowReady(activeGui, currentOpenContainer(), playerInventoryContainer())) {
+            performInitialScanAndRequest();
+        }
+    }
+
+    @SubscribeEvent
+    public void onDrawScreenPre(GuiScreenEvent.DrawScreenEvent.Pre event) {
+        if (event == null || !hasClientPlayer() || activeGui == null) {
+            return;
+        }
+        if (event.gui == activeGui && currentScreen() == activeGui) {
+            if (pendingScan) {
+                performInitialScanAndRequest();
+            } else {
+                reopenWirelessIfWindowChanged();
+            }
+            consumeIncomingState();
+        }
+    }
+
+    @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END || minecraft.thePlayer == null) {
+        if (event.phase != TickEvent.Phase.END || !hasClientPlayer()) {
             return;
         }
 
-        OverlayClientState.tick();
         // When bookmark auto-craft finishes, settle borrowed tools + unused materials to overlay.
         OverlayNeiSupport.tickAutoCraftSettle();
 
         // While pendingScan, currentScreen may lag one tick behind GuiOpenEvent — do not close yet.
-        if (activeGui != null && minecraft.currentScreen != activeGui && !pendingScan) {
+        if (activeGui != null && currentScreen() != activeGui && !pendingScan) {
+            OverlayClientState.tick();
             clearState();
             return;
         }
 
         if (pendingScan && activeGui != null) {
-            pendingScan = false;
-            tabs.clear();
-            tabs.addAll(
-                OverlayClientState.hasState() ? OverlayClientState.getTabs() : scanner.scan(minecraft.thePlayer));
-            panel.setTabs(tabs);
-            backpackInventoryFingerprint = fingerprintBackpacks(minecraft.thePlayer);
-            requestOverlayFromServer();
+            performInitialScanAndRequest();
         }
 
         // Player moved / dyed / swapped backpack items in their inventory → re-scan + resync.
-        if (activeGui != null && minecraft.currentScreen == activeGui && !pendingScan) {
-            String fingerprint = fingerprintBackpacks(minecraft.thePlayer);
+        if (activeGui != null && currentScreen() == activeGui && !pendingScan) {
+            EntityPlayer player = minecraft == null ? null : minecraft.thePlayer;
+            String fingerprint = fingerprintBackpacks(player);
             if (!fingerprint.equals(backpackInventoryFingerprint)) {
                 backpackInventoryFingerprint = fingerprint;
                 requestOverlayFromServer();
             }
         }
 
-        // Authoritative server snapshot (including empty = all backpacks removed).
-        // Apply tabs + cursor in the same step so place/take never shows both at once.
-        if (activeGui != null && OverlayClientState.consumeDirty()) {
-            List<BackpackTab> syncedTabs = OverlayClientState.getTabs();
-            tabs.clear();
-            tabs.addAll(syncedTabs);
-            panel.setTabs(tabs);
-            OverlayClientState.applyPendingCursor();
-            panel.clearModeCyclePending();
-            rememberSelectedTabId();
+        if (activeGui != null && currentScreen() == activeGui && !pendingScan) {
+            reopenWirelessIfWindowChanged();
+            consumeIncomingState();
+            if (pendingPreferredWirelessTabId >= 0 && ++pendingPreferredWirelessTicks >= WIRELESS_OPEN_WAIT_TICKS) {
+                pendingPreferredWirelessTabId = -1;
+                pendingPreferredWirelessTicks = 0;
+                rememberSelectedTabId();
+            }
+        } else {
+            OverlayClientState.tick();
         }
 
         if (activeGui != null) {
@@ -218,22 +256,113 @@ public class OverlayController {
         }
     }
 
+    private void performInitialScanAndRequest() {
+        pendingScan = false;
+        tabs.clear();
+        EntityPlayer player = minecraft == null ? null : minecraft.thePlayer;
+        tabs.addAll(OverlayClientState.hasState() ? OverlayClientState.getTabs() : scanner.scan(player));
+        panel.setTabs(tabs);
+        backpackInventoryFingerprint = fingerprintBackpacks(player);
+        requestOverlayFromServer();
+    }
+
+    private void consumeIncomingState() {
+        OverlayClientState.tick();
+        // Authoritative server snapshot (including empty = all backpacks removed).
+        // Apply tabs + cursor in the same step so place/take never shows both at once.
+        if (OverlayClientState.consumeDirty()) {
+            List<BackpackTab> syncedTabs = OverlayClientState.getTabs();
+            tabs.clear();
+            tabs.addAll(syncedTabs);
+            panel.setTabs(tabs);
+            OverlayClientState.applyPendingCursor();
+            panel.clearModeCyclePending();
+            rememberSelectedTabId();
+        }
+    }
+
     private void rememberSelectedTabId() {
         int id = panel.getActiveTabId();
-        BackpackTab active = panel.getActiveTabOrNull();
-        if (active != null && active.isWireless()
-            && (id != selectedTabId || (sentMinimized && !Config.overlayMinimized))) {
-            active.wirelessLoading = true;
+        if (pendingPreferredWirelessTabId >= 0
+            && (id == pendingPreferredWirelessTabId || panel.getPreferredTabId() != pendingPreferredWirelessTabId)) {
+            pendingPreferredWirelessTabId = -1;
+            pendingPreferredWirelessTicks = 0;
         }
-        if (id != sentActiveTab || Config.overlayMinimized != sentMinimized) {
+        boolean waitingForPreferredWireless = pendingPreferredWirelessTabId >= 0 && id != pendingPreferredWirelessTabId;
+        BackpackTab active = panel.getActiveTabOrNull();
+
+        if (id != sentActiveTab) {
             sentActiveTab = id;
-            sentMinimized = Config.overlayMinimized;
-            NetworkHandler.INSTANCE.sendToServer(new PacketOverlayActiveTab(id));
-            sendWirelessControl(PacketWirelessAction.SELECT);
+            sendToServer(new PacketOverlayActiveTab(id));
+        }
+        if (!waitingForPreferredWireless
+            && (id != lastSentWirelessTabId || Config.overlayMinimized != lastSentWirelessMinimized)) {
+            if (!Config.overlayMinimized && active != null && active.isWireless()) {
+                active.wirelessLoading = true;
+            }
+            lastSentWirelessTabId = id;
+            lastSentWirelessMinimized = Config.overlayMinimized;
+            sendWirelessControl(PacketWirelessAction.SELECT, id);
         }
         if (id >= 0) {
             selectedTabId = id;
         }
+    }
+
+    private int resolveOpenWirelessTabId() {
+        int activeTabId = panel.getActiveTabId();
+        if (WirelessOverlay.isWirelessTab(activeTabId)) {
+            return activeTabId;
+        }
+        int preferredTabId = panel.getPreferredTabId();
+        if (WirelessOverlay.isWirelessTab(preferredTabId)) {
+            return preferredTabId;
+        }
+        return activeTabId;
+    }
+
+    static boolean isContainerWindowReady(GuiScreen gui, Container openContainer, Container inventoryContainer) {
+        if (!(gui instanceof GuiContainer) || openContainer == null) {
+            return false;
+        }
+        Container guiContainer = ((GuiContainer) gui).inventorySlots;
+        if (gui instanceof GuiContainerCreative) {
+            return openContainer == guiContainer && openContainer.windowId == 0;
+        }
+        if (openContainer != guiContainer) {
+            return false;
+        }
+        if (guiContainer == inventoryContainer) {
+            return openContainer.windowId == 0;
+        }
+        return openContainer.windowId != 0;
+    }
+
+    private void reopenWirelessIfWindowChanged() {
+        Container openContainer = currentOpenContainer();
+        if (!hasClientPlayer() || openContainer == null || !(activeGui instanceof GuiContainer)) {
+            return;
+        }
+        int currentWindowId = openContainer.windowId;
+        if (lastRequestedWindowId != Integer.MIN_VALUE && currentWindowId != lastRequestedWindowId) {
+            lastRequestedWindowId = currentWindowId;
+            openWirelessSession();
+        }
+    }
+
+    private void openWirelessSession() {
+        OverlayClientState.expectWirelessSession(wirelessSessionId);
+        int openWirelessTabId = resolveOpenWirelessTabId();
+        lastSentWirelessTabId = openWirelessTabId;
+        lastSentWirelessMinimized = Config.overlayMinimized;
+        if (WirelessOverlay.isWirelessTab(openWirelessTabId) && openWirelessTabId != panel.getActiveTabId()) {
+            pendingPreferredWirelessTabId = openWirelessTabId;
+            pendingPreferredWirelessTicks = 0;
+        } else {
+            pendingPreferredWirelessTabId = -1;
+            pendingPreferredWirelessTicks = 0;
+        }
+        sendWirelessControl(PacketWirelessAction.OPEN, openWirelessTabId);
     }
 
     private void requestOverlayFromServer() {
@@ -241,10 +370,11 @@ public class OverlayController {
             return;
         }
         sessionId++;
-        OverlayClientState.expectWirelessSession(wirelessSessionId);
         sentActiveTab = Integer.MIN_VALUE;
-        sendWirelessControl(PacketWirelessAction.OPEN);
-        NetworkHandler.INSTANCE.sendToServer(
+        Container openContainer = currentOpenContainer();
+        lastRequestedWindowId = openContainer != null ? openContainer.windowId : Integer.MIN_VALUE;
+        openWirelessSession();
+        sendToServer(
             new PacketRequestOverlay(
                 activeGui.getClass()
                     .getName(),
@@ -254,13 +384,38 @@ public class OverlayController {
                 sessionId));
     }
 
+    boolean hasClientPlayer() {
+        return minecraft != null && minecraft.thePlayer != null;
+    }
+
+    GuiScreen currentScreen() {
+        return minecraft == null ? null : minecraft.currentScreen;
+    }
+
+    Container currentOpenContainer() {
+        return hasClientPlayer() ? minecraft.thePlayer.openContainer : null;
+    }
+
+    Container playerInventoryContainer() {
+        return hasClientPlayer() ? minecraft.thePlayer.inventoryContainer : null;
+    }
+
+    void sendToServer(IMessage packet) {
+        NetworkHandler.INSTANCE.sendToServer(packet);
+    }
+
     private void sendWirelessControl(int action) {
-        if (minecraft.thePlayer == null) return;
-        NetworkHandler.INSTANCE.sendToServer(
+        sendWirelessControl(action, panel.getActiveTabId());
+    }
+
+    private void sendWirelessControl(int action, int tabId) {
+        Container openContainer = currentOpenContainer();
+        if (!hasClientPlayer() || openContainer == null) return;
+        sendToServer(
             new PacketWirelessAction(
                 wirelessSessionId,
-                minecraft.thePlayer.openContainer.windowId,
-                panel.getActiveTabId(),
+                openContainer.windowId,
+                tabId,
                 0,
                 action,
                 0,
@@ -509,7 +664,10 @@ public class OverlayController {
             }
             int activeTabId = panel.consumePendingActiveTabId();
             if (activeTabId >= 0) {
-                sentActiveTab = Integer.MIN_VALUE;
+                pendingPreferredWirelessTabId = -1;
+                pendingPreferredWirelessTicks = 0;
+                sentActiveTab = activeTabId;
+                lastSentWirelessTabId = Integer.MIN_VALUE;
                 NetworkHandler.INSTANCE.sendToServer(new PacketOverlayActiveTab(activeTabId));
             }
             BackpackOverlayPanel.ModeCycleRequest modeRequest = panel.consumePendingModeCycle();
@@ -646,6 +804,11 @@ public class OverlayController {
         rightDragSlots.clear();
         backpackInventoryFingerprint = "";
         selectedTabId = -1;
+        sentActiveTab = Integer.MIN_VALUE;
+        lastSentWirelessTabId = Integer.MIN_VALUE;
+        pendingPreferredWirelessTabId = -1;
+        pendingPreferredWirelessTicks = 0;
+        lastRequestedWindowId = Integer.MIN_VALUE;
         lastHandledWheelEventNanos = Long.MIN_VALUE;
         for (int i = 0; i < hotbarKeyDown.length; i++) {
             hotbarKeyDown[i] = false;
