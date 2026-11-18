@@ -6,6 +6,8 @@ import java.util.List;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
+import net.minecraftforge.common.util.Constants;
 
 import com.darkona.adventurebackpack.inventory.InventoryBackpack;
 import com.hepdd.backpackenhance.integration.BackpackInventoryAccess;
@@ -42,14 +44,20 @@ public class OverlaySnapshotFactory {
 
         int storageSlots = BackpackInventoryAccess.storageSlots(tab.kind, inventory, liveStack);
         int columns = BackpackInventoryAccess.columns(tab.kind, storageSlots, inventory, liveStack);
-        List<OverlaySlotSnapshot> slots = new ArrayList<OverlaySlotSnapshot>(storageSlots);
+        List<OverlaySlotSnapshot> slots = new ArrayList<OverlaySlotSnapshot>();
         for (int i = 0; i < storageSlots; i++) {
             ItemStack stack = inventory.getStackInSlot(i);
-            slots.add(new OverlaySlotSnapshot(i, stack == null ? null : stack.copy()));
+            if (stack != null) {
+                slots.add(new OverlaySlotSnapshot(i, stack.copy()));
+            }
         }
 
         ForestryModeBridge.ModeState mode = tab.kind == BackpackKind.FORESTRY ? ForestryModeBridge.state(liveStack)
             : ForestryModeBridge.ModeState.NONE;
+        ItemStack displayStack = stripRedundantStorageNbt(tab.kind, liveStack);
+        if (displayStack == liveStack) {
+            displayStack = liveStack.copy();
+        }
         return new OverlayTabSnapshot(
             tab.tabId,
             tab.playerSlot,
@@ -57,12 +65,74 @@ public class OverlaySnapshotFactory {
             liveStack.getDisplayName(),
             columns,
             storageSlots,
-            liveStack.copy(),
+            displayStack,
             slots,
             mode.modeId,
             mode.nextModeId,
             mode.available,
             mode.resupplyEnabled);
+    }
+
+    /**
+     * Returns a lightweight copy of {@code stack} with large internal item-storage NBT stripped when
+     * safe, preserving display name, skin/color/mode/UID and all non-storage metadata. Never mutates
+     * the input {@code stack}.
+     */
+    public static ItemStack stripRedundantStorageNbt(BackpackKind kind, ItemStack stack) {
+        if (stack == null || kind == null || !stack.hasTagCompound()) {
+            return stack;
+        }
+        NBTTagCompound root = stack.getTagCompound();
+        if (kind == BackpackKind.FORESTRY) {
+            if (!root.hasKey("Slots") && !root.hasKey("Items")) {
+                return stack;
+            }
+            ItemStack copy = stack.copy();
+            NBTTagCompound tag = copy.getTagCompound();
+            tag.removeTag("Slots");
+            tag.removeTag("Items");
+            if (tag.hasNoTags()) {
+                copy.setTagCompound(null);
+            }
+            return copy;
+        }
+        if (kind == BackpackKind.ADVENTURE) {
+            NBTTagCompound srcWearable = null;
+            if (root.hasKey("wearableData", Constants.NBT.TAG_COMPOUND)) {
+                srcWearable = root.getCompoundTag("wearableData");
+            }
+            NBTTagCompound srcLegacy = null;
+            if (root.hasKey("backpackData", Constants.NBT.TAG_COMPOUND)) {
+                srcLegacy = root.getCompoundTag("backpackData");
+            }
+            boolean hasWearableInv = srcWearable != null && srcWearable.hasKey("inventory");
+            boolean hasLegacyInv = srcLegacy != null && (srcLegacy.hasKey("inventory") || srcLegacy.hasKey("ABPItems"));
+            if (!hasWearableInv && !hasLegacyInv) {
+                return stack;
+            }
+            ItemStack copy = stack.copy();
+            NBTTagCompound tag = copy.getTagCompound();
+            if (hasWearableInv) {
+                NBTTagCompound wearable = tag.getCompoundTag("wearableData");
+                wearable.removeTag("inventory");
+                if (wearable.hasNoTags()) {
+                    tag.removeTag("wearableData");
+                }
+            }
+            if (hasLegacyInv) {
+                NBTTagCompound legacy = tag.getCompoundTag("backpackData");
+                legacy.removeTag("inventory");
+                legacy.removeTag("ABPItems");
+                if (legacy.hasNoTags()) {
+                    tag.removeTag("backpackData");
+                }
+            }
+            if (tag.hasNoTags()) {
+                copy.setTagCompound(null);
+            }
+            return copy;
+        }
+        return stack;
     }
 
     public IInventory createInventory(EntityPlayerMP player, BackpackKind kind, ItemStack stack, int playerSlot) {

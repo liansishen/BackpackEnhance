@@ -18,7 +18,27 @@ import com.hepdd.backpackenhance.client.overlay.OverlayGuiTextures.Sprite;
 public class OverlayTextureTest {
 
     private static final File DEFAULT = new File("src/main/resources/assets/backpackenhance");
+    private static final File DEFAULT_PACK = new File("resourcepacks/BackpackEnhance-Default");
     private static final File MODERNITY = new File("resourcepacks/Modernity-BackpackEnhance/assets/backpackenhance");
+
+    @Test
+    public void defaultReferencePackMetadataFilesExist() throws IOException {
+        File readme = new File(DEFAULT_PACK, "README.txt");
+        File mcmeta = new File(DEFAULT_PACK, "pack.mcmeta");
+        File iconFile = new File(DEFAULT_PACK, "pack.png");
+        assertTrue("README.txt missing", readme.isFile() && readme.length() > 0);
+        assertTrue("pack.mcmeta missing", mcmeta.isFile() && mcmeta.length() > 0);
+        assertTrue("pack.png missing", iconFile.isFile() && iconFile.length() > 0);
+        BufferedImage icon = ImageIO.read(iconFile);
+        assertNotNull(icon);
+        assertTrue(icon.getWidth() > 0 && icon.getHeight() > 0);
+    }
+
+    @Test
+    public void preloadIsSafeWithoutMinecraftClient() {
+        assertEquals(29, Sprite.values().length);
+        OverlayGuiTextures.preload();
+    }
 
     @Test
     public void bothThemesProvideEveryComponentAtItsLogicalSize() throws IOException {

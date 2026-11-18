@@ -170,7 +170,7 @@ public final class OverlayClientState {
         for (BackpackTab tab : tabs) {
             if (!tab.modeCycleAvailable || tab.stack == null) continue;
             Minecraft mc = Minecraft.getMinecraft();
-            if (mc.thePlayer == null || mc.thePlayer.inventory == null) return;
+            if (mc == null || mc.thePlayer == null || mc.thePlayer.inventory == null) return;
             if (tab.playerSlot < 0 || tab.playerSlot >= mc.thePlayer.inventory.mainInventory.length) continue;
             ItemStack local = mc.thePlayer.inventory.mainInventory[tab.playerSlot];
             if (local != null && local.getItem() == tab.stack.getItem()) {

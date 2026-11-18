@@ -2,6 +2,7 @@ package com.hepdd.backpackenhance.client.overlay;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.util.ResourceLocation;
 
 import org.lwjgl.opengl.GL11;
@@ -66,6 +67,20 @@ public final class OverlayGuiTextures {
     private static float zLevel;
 
     private OverlayGuiTextures() {}
+
+    public static void preload() {
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (minecraft == null) {
+            return;
+        }
+        TextureManager textureManager = minecraft.getTextureManager();
+        if (textureManager == null) {
+            return;
+        }
+        for (Sprite sprite : Sprite.values()) {
+            textureManager.bindTexture(sprite.resource);
+        }
+    }
 
     public static void setZLevel(float z) {
         zLevel = z;

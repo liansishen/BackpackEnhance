@@ -7,6 +7,7 @@ import net.minecraft.item.ItemStack;
 
 import com.hepdd.backpackenhance.integration.BackpackKind;
 import com.hepdd.backpackenhance.server.overlay.OverlaySlotSnapshot;
+import com.hepdd.backpackenhance.server.overlay.OverlaySnapshotFactory;
 import com.hepdd.backpackenhance.server.overlay.OverlayTabSnapshot;
 
 import cpw.mods.fml.common.network.ByteBufUtils;
@@ -90,15 +91,24 @@ public class PacketOverlayState implements IMessage {
             ByteBufUtils.writeUTF8String(buf, tab.displayName);
             buf.writeInt(tab.columns);
             buf.writeInt(tab.storageSlots);
-            ByteBufUtils.writeItemStack(buf, tab.backpackStack);
+            ItemStack wireStack = OverlaySnapshotFactory.stripRedundantStorageNbt(tab.kind, tab.backpackStack);
+            ByteBufUtils.writeItemStack(buf, wireStack);
             buf.writeInt(tab.modeId);
             buf.writeInt(tab.nextModeId);
             buf.writeBoolean(tab.modeCycleAvailable);
             buf.writeBoolean(tab.resupplyEnabled);
-            buf.writeInt(tab.slots.size());
+            int nonNullCount = 0;
             for (OverlaySlotSnapshot slot : tab.slots) {
-                buf.writeInt(slot.slot);
-                ByteBufUtils.writeItemStack(buf, slot.stack);
+                if (slot != null && slot.stack != null) {
+                    nonNullCount++;
+                }
+            }
+            buf.writeInt(nonNullCount);
+            for (OverlaySlotSnapshot slot : tab.slots) {
+                if (slot != null && slot.stack != null) {
+                    buf.writeInt(slot.slot);
+                    ByteBufUtils.writeItemStack(buf, slot.stack);
+                }
             }
         }
         buf.writeBoolean(updateCursor);

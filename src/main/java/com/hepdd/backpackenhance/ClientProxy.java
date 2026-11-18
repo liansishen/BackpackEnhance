@@ -7,6 +7,7 @@ import net.minecraftforge.common.MinecraftForge;
 import com.hepdd.backpackenhance.client.keybind.KeyBindings;
 import com.hepdd.backpackenhance.client.overlay.OverlayClientState;
 import com.hepdd.backpackenhance.client.overlay.OverlayController;
+import com.hepdd.backpackenhance.client.overlay.OverlayGuiTextures;
 import com.hepdd.backpackenhance.client.overlay.OverlayTheme;
 import com.hepdd.backpackenhance.integration.nei.NeiOverlayIntegration;
 import com.hepdd.backpackenhance.net.packet.PacketWirelessState;
@@ -23,6 +24,7 @@ public class ClientProxy extends CommonProxy {
         NeiOverlayIntegration.init();
         ((IReloadableResourceManager) Minecraft.getMinecraft()
             .getResourceManager()).registerReloadListener(OverlayTheme.INSTANCE);
+        OverlayGuiTextures.preload();
         OverlayController overlayController = new OverlayController();
         MinecraftForge.EVENT_BUS.register(overlayController);
         FMLCommonHandler.instance()
