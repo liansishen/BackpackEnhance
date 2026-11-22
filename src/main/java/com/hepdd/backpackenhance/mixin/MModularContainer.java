@@ -17,16 +17,21 @@ import com.hepdd.backpackenhance.server.overlay.OverlayShiftInHandler;
  * ModularUI2 {@code ModularContainer.slotClick} handles QUICK_MOVE without calling
  * {@code super.slotClick}, so {@link MContainer} never runs for GT shift-clicks.
  * Mirror the same prioritize-backpack intercept at HEAD here.
+ * <p>
+ * Runtime ModularUI2 jars reobfuscate vanilla overrides to SRG ({@code func_75144_a}); target both
+ * names with {@code require = 0}.
  */
 @Pseudo
 @Mixin(targets = "com.cleanroommc.modularui.screen.ModularContainer", remap = false)
 public abstract class MModularContainer {
 
     @Inject(
-        method = "slotClick(IIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;",
+        method = { "slotClick(IIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;",
+            "func_75144_a(IIILnet/minecraft/entity/player/EntityPlayer;)Lnet/minecraft/item/ItemStack;" },
         at = @At("HEAD"),
         cancellable = true,
-        require = 0)
+        require = 0,
+        remap = false)
     private void backpackenhance$shiftIntoOverlay(int slotId, int mouseButton, int mode, EntityPlayer player,
         CallbackInfoReturnable<ItemStack> cir) {
         // mode 1 == QUICK_MOVE / shift-click in 1.7.10
