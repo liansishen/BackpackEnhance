@@ -152,16 +152,21 @@ public final class OverlaySlotUtil {
             }
             if (isClassOrSuperclass(compose.getClass(), INV_WRAPPER_MUI1)
                 || isClassOrSuperclass(compose.getClass(), INV_WRAPPER_MUI2)) {
-                Object source = invokeNoArg(compose, "getSourceInventory");
+                Object source = getSourceInventory(compose);
                 return source instanceof InventoryPlayer;
             }
         }
-        Object source = invokeNoArg(handler, "getSourceInventory");
+        Object source = getSourceInventory(handler);
         if (source instanceof InventoryPlayer) {
             return true;
         }
         Object invPlayer = invokeNoArg(handler, "getInventoryPlayer");
         return invPlayer instanceof InventoryPlayer;
+    }
+
+    private static Object getSourceInventory(Object wrapper) {
+        Object source = invokeNoArg(wrapper, "getSourceInventory");
+        return source != null ? source : invokeNoArg(wrapper, "getInv");
     }
 
     /**
